@@ -2,6 +2,7 @@ import subprocess
 from pathlib import Path
 
 from eldorado.constants import BARCODING_KITS, DORADO_EXECUTABLE
+from eldorado.logging_config import logger
 
 sequencing_kit = "sqk-nbd114-96"
 sequencing_kit.upper()
@@ -47,11 +48,11 @@ def submit_demux_to_slurm(
         trap 'rm -rf ${{TEMP_DIR}}' EXIT
 
         # Run basecaller
-        {DORADO_EXECUTABLE} demux \
-            --no-trim \
-            --verbose \
-            --kit {kit} \
-            --output-dir ${{TEMP_DIR}} \
+        {DORADO_EXECUTABLE} demux \\
+            --no-trim \\
+            --verbose \\
+            --kit {kit} \\
+            --output-dir ${{TEMP_DIR}} \\
             {raw_bam}
 
         # Move output files from temp dir to output 
@@ -76,16 +77,15 @@ def submit_demux_to_slurm(
 
     """
 
-    if dry_run:
-        print(f"----------------------------- Dry run: {script_name} -----------------------------")
-        print(slurm_script)
-        return
-
     # Write Slurm script to a file
-    script_dir.mkdir(exist_ok=True)
+    script_dir.mkdir(exist_ok=True, parents=True)
     script_file = script_dir / script_name
     with open(script_file, "w", encoding="utf-8") as f:
         f.write(slurm_script)
+
+    if dry_run:
+        logger.info("Dry run. Skipping submission of job to Slurm.")
+        return
 
     # Create .lock file
     lock_file.touch()

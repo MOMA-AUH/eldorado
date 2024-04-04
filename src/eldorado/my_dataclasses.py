@@ -1,5 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import List
 
 import pod5
 
@@ -19,26 +20,36 @@ class SequencingRun:
     flow_cell_product_code: str
     sequencing_kit: str
 
-    def get_script_name_basecall(self) -> str:
-        return "dorado_basecalling_" + self.project_id + "_" + self.sample_id + "_" + self.protocol_run_id + ".sh"
+    # Derived attributes
+    output_dir: Path = field(init=False)
+    output_bam: Path = field(init=False)
+    output_bam_parts_dir: Path = field(init=False)
+    script_dir: Path = field(init=False)
+    pod5_files_locked_dir: Path = field(init=False)
+    pod5_files_done_dir: Path = field(init=False)
 
-    def get_script_name_demux(self) -> str:
-        return "dorado_demux_" + self.project_id + "_" + self.sample_id + "_" + self.protocol_run_id + ".sh"
+    def __post_init__(self):
+        # Output paths
+        self.output_dir = self.pod5_dir.parent / (self.pod5_dir.name.replace("pod5", "bam") + "_eldorado")
+        self.output_bam = self.output_dir / "basecalled.bam"
+        self.output_bam_parts_dir = self.output_dir / "basecalled_parts"
+        # Script names
+        self.script_dir = self.output_bam.parent / "basecall_scripts"
+        # Lock and done files
+        self.pod5_files_locked_dir = self.output_bam.parent / "lock_files"
+        self.pod5_files_done_dir = self.output_bam.parent / "done_files"
 
-    def lock_file_basecall(self) -> Path:
-        return self.pod5_dir.parent / (self.pod5_dir.name + ".lock")
+    def get_pod5_files(self) -> List[Path]:
+        return list(self.pod5_dir.glob("*.pod5"))
 
-    def lock_file_demux(self) -> Path:
-        return self.output_bam().parent / (self.output_bam().name + ".lock")
+    def get_pod5_lock_files(self) -> List[Path]:
+        return list(self.pod5_files_locked_dir.glob("*.lock"))
 
-    def done_file_demux(self) -> Path:
-        return self.output_bam().parent / (self.output_bam().name + ".done")
+    def lock_files_from_list(self, pod5_files: List[Path]) -> List[Path]:
+        return [self.pod5_files_locked_dir / f"{pod5_file.name}.lock" for pod5_file in pod5_files]
 
-    def output_bam(self) -> Path:
-        return self.pod5_dir.parent / (self.pod5_dir.name.replace("pod5", "bam") + "_eldorado") / ("basecalled.bam")
-
-    def output_dir_demux(self) -> Path:
-        return self.output_bam().parent
+    def get_pod5_done_files(self) -> List[Path]:
+        return list(self.pod5_files_done_dir.glob("*.done"))
 
     @classmethod
     def create_from_pod5_dir(cls, pod5_dir: Path):
@@ -57,7 +68,7 @@ class SequencingRun:
         run_info = first_pod5_read.run_info
 
         # Sample metadata
-        project_id = run_info.experiment_name
+        experiment_name = run_info.experiment_name
         sample_id = run_info.sample_id
         protocol_run_id = run_info.protocol_run_id
 
@@ -69,7 +80,7 @@ class SequencingRun:
         # Create sequencing run
         return cls(
             pod5_dir=pod5_dir,
-            project_id=project_id,
+            project_id=experiment_name,
             sample_id=sample_id,
             protocol_run_id=protocol_run_id,
             sample_rate=sample_rate,
