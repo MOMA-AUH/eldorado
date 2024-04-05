@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
 
+import time
+
 import pod5
 
 
@@ -21,35 +23,56 @@ class SequencingRun:
     sequencing_kit: str
 
     # Derived attributes
+    # General
     output_dir: Path = field(init=False)
+    script_dir: Path = field(init=False)
+    # Basecalling
     output_bam: Path = field(init=False)
     output_bam_parts_dir: Path = field(init=False)
-    script_dir: Path = field(init=False)
-    pod5_files_locked_dir: Path = field(init=False)
-    pod5_files_done_dir: Path = field(init=False)
+    basecalling_lock_files_dir: Path = field(init=False)
+    basecalling_dine_files_dir: Path = field(init=False)
+    # Merging
+    merge_lock_file: Path = field(init=False)
 
     def __post_init__(self):
-        # Output paths
+        # General
         self.output_dir = self.pod5_dir.parent / (self.pod5_dir.name.replace("pod5", "bam") + "_eldorado")
+        self.script_dir = self.output_dir / "basecall_scripts"
+        # Basecalling
         self.output_bam = self.output_dir / "basecalled.bam"
         self.output_bam_parts_dir = self.output_dir / "basecalled_parts"
-        # Script names
-        self.script_dir = self.output_bam.parent / "basecall_scripts"
-        # Lock and done files
-        self.pod5_files_locked_dir = self.output_bam.parent / "lock_files"
-        self.pod5_files_done_dir = self.output_bam.parent / "done_files"
+        self.basecalling_lock_files_dir = self.output_dir / "lock_files"
+        self.basecalling_dine_files_dir = self.output_dir / "done_files"
+        # Merging
+        self.merge_lock_file = self.output_dir / "merge.lock"
 
     def get_pod5_files(self) -> List[Path]:
         return list(self.pod5_dir.glob("*.pod5"))
 
-    def get_pod5_lock_files(self) -> List[Path]:
-        return list(self.pod5_files_locked_dir.glob("*.lock"))
+    def get_pod5_lock_files(self) -> List[str]:
+        return [x.name for x in self.basecalling_lock_files_dir.glob("*.pod5.lock")]
 
     def lock_files_from_list(self, pod5_files: List[Path]) -> List[Path]:
-        return [self.pod5_files_locked_dir / f"{pod5_file.name}.lock" for pod5_file in pod5_files]
+        return [self.basecalling_lock_files_dir / f"{pod5_file.name}.lock" for pod5_file in pod5_files]
 
-    def get_pod5_done_files(self) -> List[Path]:
-        return list(self.pod5_files_done_dir.glob("*.done"))
+    def done_files_from_list(self, pod5_files: List[Path]) -> List[Path]:
+        return [self.basecalling_dine_files_dir / f"{pod5_file.name}.done" for pod5_file in pod5_files]
+
+    def get_pod5_done_files(self) -> List[str]:
+        return [x.name for x in self.basecalling_dine_files_dir.glob("*.pod5.done")]
+
+    def get_pod5_files_for_basecalling(self):
+        pod5_files = self.get_pod5_files()
+
+        # Filter pod5 files for which there is a lock file or a done file
+        pod5_files = [pod5 for pod5 in pod5_files if f"{pod5.name}.lock" not in self.get_pod5_lock_files()]
+        pod5_files = [pod5 for pod5 in pod5_files if f"{pod5.name}.done" not in self.get_pod5_done_files()]
+
+        # Filter pod5 files for which the data is done transfering
+        thirty_minutes_in_sec = 30 * 60
+        pod5_files = [pod5 for pod5 in pod5_files if file_is_done_transfering(pod5, thirty_minutes_in_sec)]
+
+        return pod5_files
 
     @classmethod
     def create_from_pod5_dir(cls, pod5_dir: Path):
@@ -87,3 +110,8 @@ class SequencingRun:
             flow_cell_product_code=flow_cell_product_code,
             sequencing_kit=sequencing_kit,
         )
+
+
+def file_is_done_transfering(file: Path, min_time: int) -> bool:
+    time_since_data_last_modified = time.time() - file.stat().st_mtime
+    return time_since_data_last_modified > min_time

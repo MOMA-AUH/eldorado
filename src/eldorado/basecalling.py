@@ -3,9 +3,71 @@ import subprocess
 from pathlib import Path
 from typing import List
 
-from eldorado.constants import DORADO_EXECUTABLE, MODELS_DIR, MODIFICATIONS
-from eldorado.logging_config import logger
-from eldorado.my_dataclasses import SequencingRun
+import hashlib
+
+from src.eldorado.constants import DORADO_EXECUTABLE, MODELS_DIR, MODIFICATIONS
+from src.eldorado.logging_config import logger
+from src.eldorado.my_dataclasses import SequencingRun
+
+
+def process_unbasecalled_pod5_dirs(pod5_dir: Path, dry_run: bool):
+
+    run = SequencingRun.create_from_pod5_dir(pod5_dir)
+
+    pod5_files_to_process = run.get_pod5_files_for_basecalling()
+
+    # Skip if no pod5 files to basecall
+    if not pod5_files_to_process:
+        logger.info("No pod5 files to basecall in %s", pod5_dir)
+        return
+
+    # Create a md5 hash for batch
+    string = "".join([str(x) for x in pod5_files_to_process])
+    md5_hash = hashlib.md5(string.encode()).hexdigest()
+
+    output_bam_batch = run.output_bam_parts_dir / f"batch_{md5_hash}.bam"
+    output_bam_batch_manifest = output_bam_batch.parent / f"{output_bam_batch.name}.pod5_manifest.txt"
+    script_file = run.script_dir / f"run_basecaller_batch_{md5_hash}.sh"
+
+    lock_files = run.lock_files_from_list(pod5_files_to_process)
+    done_files = run.done_files_from_list(pod5_files_to_process)
+
+    # Submit job
+    basecalling_model = get_basecalling_model(run)
+    modified_bases_models = get_modified_bases_models(basecalling_model)
+    submit_basecalling_to_slurm(
+        basecalling_model=basecalling_model,
+        modified_bases_models=modified_bases_models,
+        pod5_files=pod5_files_to_process,
+        output_bam=output_bam_batch,
+        output_bam_manifest=output_bam_batch_manifest,
+        dry_run=dry_run,
+        script_file=script_file,
+        lock_files=lock_files,
+        done_files=done_files,
+    )
+
+
+def get_pod5_dirs_for_basecalling(pod5_dirs: List[Path]) -> List[Path]:
+
+    # Keep only pod5 directories that has pod5 files
+    pod5_dirs = [x for x in pod5_dirs if contains_pod5_files(x)]
+
+    # Keep only pod5 dirs that are not done basecalling
+    pod5_dirs = [x for x in pod5_dirs if not is_basecalling_complete(x)]
+
+    return pod5_dirs
+
+
+def contains_pod5_files(x: Path) -> bool:
+    return any(x.glob("*.pod5"))
+
+
+def is_basecalling_complete(pod5_dir: Path) -> bool:
+    any_existing_bam_outputs = any(pod5_dir.parent.glob("bam*/*.bam"))
+    any_existing_fastq_outputs = any(pod5_dir.parent.glob("fastq*/*.fastq*"))
+
+    return any_existing_bam_outputs or any_existing_fastq_outputs
 
 
 def compare_versions(version1, version2):
@@ -108,14 +170,16 @@ def submit_basecalling_to_slurm(
     basecalling_model: Path,
     modified_bases_models: List[Path],
     output_bam: Path,
+    output_bam_manifest: Path,
     dry_run: bool,
     lock_files: List[Path],
-    done_files_dir: Path,
+    done_files: List[Path],
 ):
 
     # Convert path lists to strings
     pod5_files_str = " ".join([str(x) for x in pod5_files])
     lock_files_str = " ".join([str(x) for x in lock_files])
+    done_files_str = " ".join([str(x) for x in done_files])
 
     # Construct SLURM job script
     modified_bases_models_arg = ""
@@ -200,12 +264,13 @@ def submit_basecalling_to_slurm(
         echo "modified_bases_models={modified_bases_models}" >> ${{LOG_FILE}}
 
         # Write pod5 manifest and touch done files
-        POD5_MANIFEST_FILE={output_bam}.eldorado.basecaller.pod5_manifest.txt
         for pod5_file in ${{POD5_FILES_LIST[@]}}
         do
-            echo ${{pod5_file}} >> ${{POD5_MANIFEST_FILE}}
-            touch {done_files_dir}/$(basename ${{pod5_file}}).done
+            echo ${{pod5_file}} >> {output_bam_manifest}
         done
+        
+        # Touch done files
+        touch {done_files_str}
 
     """
 
