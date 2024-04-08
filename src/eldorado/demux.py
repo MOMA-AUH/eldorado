@@ -1,8 +1,8 @@
 import subprocess
 from pathlib import Path
 
-from src.eldorado.constants import BARCODING_KITS, DORADO_EXECUTABLE
-from src.eldorado.logging_config import logger
+from eldorado.constants import BARCODING_KITS, DORADO_EXECUTABLE
+from eldorado.logging_config import logger
 
 sequencing_kit = "sqk-nbd114-96"
 sequencing_kit.upper()

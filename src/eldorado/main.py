@@ -5,10 +5,10 @@ from typing import List
 import typer
 from typing_extensions import Annotated
 
-from src.eldorado.basecalling import process_unbasecalled_pod5_dirs, get_pod5_dirs_for_basecalling
-from src.eldorado.merging import get_pod5_dirs_for_merging, submit_merging_to_slurm
-from src.eldorado.logging_config import get_log_file_handler, logger
-from src.eldorado.my_dataclasses import SequencingRun
+from eldorado.basecalling import process_unbasecalled_pod5_dirs, get_pod5_dirs_for_basecalling
+from eldorado.merging import get_pod5_dirs_for_merging, submit_merging_to_slurm
+from eldorado.logging_config import get_log_file_handler, logger
+from eldorado.my_dataclasses import Pod5Directory
 
 # Set up the CLI
 app = typer.Typer()
@@ -81,22 +81,24 @@ def run_basecalling(
         logger.info("Found %s pod5 dirs for merging", len(pod5_dirs_for_merging))
         for pod5_dir in pod5_dirs_for_merging:
             logger.info("Processing %s", pod5_dir)
-            run = SequencingRun.create_from_pod5_dir(pod5_dir)
 
             submit_merging_to_slurm(
-                script_file=run.script_dir / "merge_bams.sh",
-                bam_dir=run.output_bam_parts_dir,
-                output_bam=run.output_bam,
+                script_file=pod5_dir.script_dir / "merge_bams.sh",
+                bam_dir=pod5_dir.output_bam_parts_dir,
+                output_bam=pod5_dir.output_bam,
                 dry_run=dry_run,
-                lock_file=run.merge_lock_file,
+                lock_file=pod5_dir.merge_lock_file,
             )
 
     # Demultiplex samples
     # TODO: Implement this
+    # TODO: Check if samples are merged
+    # TODO: Check if run kit is a barcoding kit
+    # TODO: Check for sample sheet
 
 
-def find_pod5_dirs(root_dir: Path, pattern: str) -> List[Path]:
-    return list(root_dir.glob(pattern=pattern))
+def find_pod5_dirs(root_dir: Path, pattern: str) -> List[Pod5Directory]:
+    return [Pod5Directory(pod5_dir) for pod5_dir in list(root_dir.glob(pattern=pattern))]
 
 
 if __name__ == "__main__":

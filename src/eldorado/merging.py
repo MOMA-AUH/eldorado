@@ -1,11 +1,10 @@
 from pathlib import Path
-import re
 import subprocess
 
 from typing import List
 
-from src.eldorado.logging_config import logger
-from src.eldorado.my_dataclasses import SequencingRun
+from eldorado.logging_config import logger
+from eldorado.my_dataclasses import Pod5Directory, is_file_inactive
 
 
 def submit_merging_to_slurm(
@@ -96,41 +95,40 @@ def submit_merging_to_slurm(
     subprocess.run(["sbatch", script_file], check=True)
 
 
-def get_pod5_dirs_for_merging(pod5_dirs: List[Path]) -> List[Path]:
+def get_pod5_dirs_for_merging(pod5_dirs: List[Pod5Directory]) -> List[Pod5Directory]:
 
-    pod5_dirs = [x for x in pod5_dirs if is_done_basecalling(x)]
+    pod5_dirs = [x for x in pod5_dirs if are_all_files_basecalled(x)]
+
+    pod5_dirs = [x for x in pod5_dirs if not has_merge_lock_file(x)]
+
+    pod5_dirs = [x for x in pod5_dirs if are_all_bam_parts_done(x)]
 
     return pod5_dirs
 
 
-def is_done_basecalling(pod5_dir: Path) -> bool:
-    # Get final summary
-    final_summary = next(pod5_dir.parent.glob("final_summary*.txt"), None)
+def has_merge_lock_file(pod5_dir: Pod5Directory) -> bool:
+    return pod5_dir.merge_lock_file.exists()
 
-    # If final summary does not exist basecalling is not done
-    if final_summary is None:
+
+def are_all_files_basecalled(pod5_dir: Pod5Directory) -> bool:
+    # Check if all pod5 files have been transferred
+    if not pod5_dir.are_pod5_all_files_transfered():
         return False
 
-    # Read final summary
-    with open(final_summary, "r", encoding="utf-8") as file:
-        file_content = file.read()
-
-    # Get number of pod5 files
-    matches = re.search(r"pod5_files_in_final_dest=(\d+)", file_content)
-
-    # If number of pod5 files is not found raise error
-    if matches is None:
-        logger.error("Could not find number of pod5 files in %s", final_summary)
-        return False
-
-    # Get expected number of pod5 files
-    n_pod5_files_expected = int(matches[1])
+    # Check if number of pod5 files is equal to number of done files
+    # Count the number of pod5 files
+    pod5_files = pod5_dir.get_pod5_files()
+    n_pod5_files_expected = len(pod5_files)
 
     # Count the number of pod5 done files
-    run = SequencingRun.create_from_pod5_dir(pod5_dir)
-
-    done_files = run.get_pod5_done_files()
+    done_files = pod5_dir.get_pod5_done_files()
     n_pod5_files_count = len(done_files)
 
     # If number of pod5 files is euqal to expected number of pod5 files basecalling is done
     return n_pod5_files_expected == n_pod5_files_count
+
+
+def are_all_bam_parts_done(pod5_dir: Pod5Directory) -> bool:
+    bam_parts = pod5_dir.output_bam_parts_dir.glob("*.bam")
+    five_min_in_sec = 5 * 60
+    return not any(is_file_inactive(bam_part, five_min_in_sec) for bam_part in bam_parts)

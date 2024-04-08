@@ -3,8 +3,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import src.eldorado.my_dataclasses as my_dataclasses
-from src.eldorado.my_dataclasses import file_is_done_transfering
+import eldorado.my_dataclasses as my_dataclasses
+from eldorado.my_dataclasses import is_file_inactive
 
 
 @pytest.mark.parametrize(
@@ -20,7 +20,7 @@ def test_is_done_transfering(monkeypatch, time_created, time_now, min_time, expe
     monkeypatch.setattr(my_dataclasses.Path, "stat", lambda *args, **kwargs: MagicMock(st_mtime=time_created))
 
     # Act
-    result = file_is_done_transfering(Path("file"), min_time)
+    result = is_file_inactive(Path("file"), min_time)
 
     # Assert
     assert result == expected

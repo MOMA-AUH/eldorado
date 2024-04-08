@@ -3,24 +3,25 @@ from pathlib import Path
 from typing import List
 
 import time
+import re
 
 import pod5
 
 
 @dataclass
-class SequencingRun:
-    # Data directory
-    pod5_dir: Path
-
-    # Sample metadata
+class RunMetadata:
     project_id: str
     sample_id: str
     protocol_run_id: str
-
-    # Sequencing metadata
-    sample_rate: float
+    sample_rate: int
     flow_cell_product_code: str
     sequencing_kit: str
+
+
+@dataclass
+class Pod5Directory:
+    # Data directory
+    path: Path
 
     # Derived attributes
     # General
@@ -36,7 +37,7 @@ class SequencingRun:
 
     def __post_init__(self):
         # General
-        self.output_dir = self.pod5_dir.parent / (self.pod5_dir.name.replace("pod5", "bam") + "_eldorado")
+        self.output_dir = self.path.parent / (self.path.name.replace("pod5", "bam") + "_eldorado")
         self.script_dir = self.output_dir / "basecall_scripts"
         # Basecalling
         self.output_bam = self.output_dir / "basecalled.bam"
@@ -47,7 +48,7 @@ class SequencingRun:
         self.merge_lock_file = self.output_dir / "merge.lock"
 
     def get_pod5_files(self) -> List[Path]:
-        return list(self.pod5_dir.glob("*.pod5"))
+        return list(self.path.glob("*.pod5"))
 
     def get_pod5_lock_files(self) -> List[str]:
         return [x.name for x in self.basecalling_lock_files_dir.glob("*.pod5.lock")]
@@ -70,19 +71,21 @@ class SequencingRun:
 
         # Filter pod5 files for which the data is done transfering
         thirty_minutes_in_sec = 30 * 60
-        pod5_files = [pod5 for pod5 in pod5_files if file_is_done_transfering(pod5, thirty_minutes_in_sec)]
+        pod5_files = [pod5 for pod5 in pod5_files if is_file_inactive(pod5, thirty_minutes_in_sec)]
 
         return pod5_files
 
-    @classmethod
-    def create_from_pod5_dir(cls, pod5_dir: Path):
+    def get_final_summary(self) -> Path | None:
+        return next(self.path.parent.glob("final_summary*.txt"), None)
+
+    def get_run_metadata(self) -> RunMetadata:
         # Get first pod5 file
-        pod5_files = pod5_dir.glob("*.pod5")
+        pod5_files = self.path.glob("*.pod5")
         first_pod5_file = next(pod5_files, None)
 
         # Check if pod5 files exist
         if first_pod5_file is None:
-            raise ValueError(f"No pod5 files found in {pod5_dir}")
+            raise ValueError(f"No pod5 files found in {self.path}")
 
         # Get first read from file
         first_pod5_read = next(pod5.Reader(first_pod5_file).reads())
@@ -100,9 +103,8 @@ class SequencingRun:
         flow_cell_product_code = run_info.flow_cell_product_code
         sequencing_kit = run_info.sequencing_kit
 
-        # Create sequencing run
-        return cls(
-            pod5_dir=pod5_dir,
+        # Output metadata
+        return RunMetadata(
             project_id=experiment_name,
             sample_id=sample_id,
             protocol_run_id=protocol_run_id,
@@ -111,7 +113,36 @@ class SequencingRun:
             sequencing_kit=sequencing_kit,
         )
 
+    def are_pod5_all_files_transfered(self) -> bool:
+        # Get final summary
+        final_summary = self.get_final_summary()
 
-def file_is_done_transfering(file: Path, min_time: int) -> bool:
+        # If final summary does not exist basecalling is not done
+        if final_summary is None:
+            return False
+
+        # Read final summary
+        with open(final_summary, "r", encoding="utf-8") as file:
+            file_content = file.read()
+
+        # Get number of pod5 files
+        matches = re.search(r"pod5_files_in_final_dest=(\d+)", file_content)
+
+        # If number of pod5 files is not found raise error
+        if matches is None:
+            return False
+
+        # Get expected number of pod5 files
+        n_pod5_files_expected = int(matches[1])
+
+        # Count the number of pod5 files
+        pod5_files = self.get_pod5_files()
+        n_pod5_files_count = len(pod5_files)
+
+        # If number of pod5 files is euqal to expected number of pod5 files basecalling is done
+        return n_pod5_files_expected == n_pod5_files_count
+
+
+def is_file_inactive(file: Path, min_time: int) -> bool:
     time_since_data_last_modified = time.time() - file.stat().st_mtime
     return time_since_data_last_modified > min_time
