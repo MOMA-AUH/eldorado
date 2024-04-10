@@ -121,7 +121,7 @@ def are_all_files_basecalled(pod5_dir: Pod5Directory) -> bool:
     n_pod5_files_expected = len(pod5_files)
 
     # Count the number of pod5 done files
-    done_files = pod5_dir.get_pod5_done_files()
+    done_files = pod5_dir.get_done_files()
     n_pod5_files_count = len(done_files)
 
     # If number of pod5 files is euqal to expected number of pod5 files basecalling is done
@@ -129,6 +129,6 @@ def are_all_files_basecalled(pod5_dir: Pod5Directory) -> bool:
 
 
 def are_all_bam_parts_done(pod5_dir: Pod5Directory) -> bool:
-    bam_parts = pod5_dir.output_bam_parts_dir.glob("*.bam")
+    bam_parts = pod5_dir.bam_batches_dir.glob("*.bam")
     five_min_in_sec = 5 * 60
     return not any(is_file_inactive(bam_part, five_min_in_sec) for bam_part in bam_parts)

@@ -4,8 +4,51 @@ from typing import List
 
 import time
 import re
+import hashlib
 
 import pod5
+
+
+@dataclass
+class BasecallingBatch:
+    pod5_files: List[Path]
+    batches_dir: Path
+    pod5_lock_files_dir: Path
+    pod5_done_files_dir: Path
+
+    # Derived attributes
+    batch_id: str = field(init=False)
+
+    batch_dir: Path = field(init=False)
+    bam: Path = field(init=False)
+    pod5_manifest: Path = field(init=False)
+    slurm_id_txt: Path = field(init=False)
+    script_file: Path = field(init=False)
+
+    done_file = Path
+    pod5_lock_files: List[Path] = field(init=False)
+    pod5_done_files: List[Path] = field(init=False)
+
+    def __post_init__(self):
+        # Batch ID
+        # Create a md5 hash for batch
+        string = "".join([str(x) for x in self.pod5_files]) + str(time.time())
+        self.batch_id = hashlib.md5(string.encode()).hexdigest()
+
+        # Output files
+        self.batch_dir = self.batches_dir / self.batch_id
+        self.bam = self.batch_dir / f"basecalled_batch_{self.batch_id}.bam"
+        self.pod5_manifest = self.batch_dir / "pod5_manifest.txt"
+        self.slurm_id_txt = self.batch_dir / "slurm_id.txt"
+
+        self.script_file = self.batch_dir / f"run_basecaller_batch_{self.batch_id}.sh"
+
+        # Lock files
+        self.pod5_lock_files = [self.pod5_lock_files_dir / f"{pod5_file.name}.lock" for pod5_file in self.pod5_files]
+
+        # Done files
+        self.done_file = self.batch_dir / "batch.done"
+        self.pod5_done_files = [self.pod5_done_files_dir / f"{pod5_file.name}.done" for pod5_file in self.pod5_files]
 
 
 @dataclass
@@ -28,10 +71,10 @@ class Pod5Directory:
     output_dir: Path = field(init=False)
     script_dir: Path = field(init=False)
     # Basecalling
-    output_bam: Path = field(init=False)
-    output_bam_parts_dir: Path = field(init=False)
+    bam: Path = field(init=False)
+    bam_batches_dir: Path = field(init=False)
     basecalling_lock_files_dir: Path = field(init=False)
-    basecalling_dine_files_dir: Path = field(init=False)
+    basecalling_done_files_dir: Path = field(init=False)
     # Merging
     merge_lock_file: Path = field(init=False)
 
@@ -40,34 +83,28 @@ class Pod5Directory:
         self.output_dir = self.path.parent / (self.path.name.replace("pod5", "bam") + "_eldorado")
         self.script_dir = self.output_dir / "basecall_scripts"
         # Basecalling
-        self.output_bam = self.output_dir / "basecalled.bam"
-        self.output_bam_parts_dir = self.output_dir / "basecalled_parts"
+        self.bam = self.output_dir / "basecalled.bam"
+        self.bam_batches_dir = self.output_dir / "batches"
         self.basecalling_lock_files_dir = self.output_dir / "lock_files"
-        self.basecalling_dine_files_dir = self.output_dir / "done_files"
+        self.basecalling_done_files_dir = self.output_dir / "done_files"
         # Merging
         self.merge_lock_file = self.output_dir / "merge.lock"
 
     def get_pod5_files(self) -> List[Path]:
         return list(self.path.glob("*.pod5"))
 
-    def get_pod5_lock_files(self) -> List[str]:
-        return [x.name for x in self.basecalling_lock_files_dir.glob("*.pod5.lock")]
+    def get_lock_files(self) -> List[Path]:
+        return list(self.basecalling_lock_files_dir.glob("*.lock"))
 
-    def lock_files_from_list(self, pod5_files: List[Path]) -> List[Path]:
-        return [self.basecalling_lock_files_dir / f"{pod5_file.name}.lock" for pod5_file in pod5_files]
-
-    def done_files_from_list(self, pod5_files: List[Path]) -> List[Path]:
-        return [self.basecalling_dine_files_dir / f"{pod5_file.name}.done" for pod5_file in pod5_files]
-
-    def get_pod5_done_files(self) -> List[str]:
-        return [x.name for x in self.basecalling_dine_files_dir.glob("*.pod5.done")]
+    def get_done_files(self) -> List[Path]:
+        return list(self.basecalling_done_files_dir.glob("*.done"))
 
     def get_pod5_files_for_basecalling(self):
         pod5_files = self.get_pod5_files()
 
         # Filter pod5 files for which there is a lock file or a done file
-        pod5_files = [pod5 for pod5 in pod5_files if f"{pod5.name}.lock" not in self.get_pod5_lock_files()]
-        pod5_files = [pod5 for pod5 in pod5_files if f"{pod5.name}.done" not in self.get_pod5_done_files()]
+        pod5_files = [pod5 for pod5 in pod5_files if f"{pod5.name}.lock" not in [y.name for y in self.get_lock_files()]]
+        pod5_files = [pod5 for pod5 in pod5_files if f"{pod5.name}.done" not in [y.name for y in self.get_done_files()]]
 
         # Filter pod5 files for which the data is done transfering
         thirty_minutes_in_sec = 30 * 60

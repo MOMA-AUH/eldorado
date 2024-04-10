@@ -3,11 +3,96 @@ import subprocess
 from pathlib import Path
 from typing import List
 
-import hashlib
-
 from eldorado.constants import DORADO_EXECUTABLE, MODELS_DIR, MODIFICATIONS
 from eldorado.logging_config import logger
-from eldorado.my_dataclasses import Pod5Directory
+from eldorado.my_dataclasses import Pod5Directory, BasecallingBatch
+
+
+def cleanup_stalled_batch_basecalling_dirs(pod5_dir: Pod5Directory):
+
+    # Loop through all batch directories and collect inactive and active pod5 files
+    active_pod5_files: set[Path] = set()
+    stalled_batch_dirs: set[Path] = set()
+    for batch_dir in pod5_dir.bam_batches_dir.glob("*"):
+
+        # Skip if bam already exists
+        if any(batch_dir.glob("*.bam")):
+            continue
+
+        # Skip if job is done
+        if Path(batch_dir / "batch.done").exists():
+            continue
+
+        # Mark as stalled if slurm id file is missing
+        slurm_id_file = batch_dir / "slurm_id.txt"
+        if not slurm_id_file.exists():
+            stalled_batch_dirs.add(batch_dir)
+            continue
+
+        # Mark as stalled if pod5 manifest is missing
+        pod5_manifest_file = batch_dir / "pod5_manifest.txt"
+        if not pod5_manifest_file.exists():
+            stalled_batch_dirs.add(batch_dir)
+            continue
+
+        # Mark as stalled if job is not in queue
+        job_id = get_slurm_job_id(slurm_id_file)
+        if not is_in_queue(job_id):
+            stalled_batch_dirs.add(batch_dir)
+            continue
+
+        # Collect pod5 files for active job
+        pod5_files = read_pod5_manifest(pod5_manifest_file)
+        active_pod5_files.update(pod5_files)
+
+    # Remove lock files for pod5 files that are not in active batch directories
+    for lock_file in pod5_dir.get_lock_files():
+        if lock_file.name not in [f"{x.name}.lock" for x in active_pod5_files]:
+            lock_file.unlink()
+
+    # Remove stalled batch directories
+    for batch_dir in stalled_batch_dirs:
+        logger.info("Removing stalled batch directory %s", batch_dir)
+        subprocess.run(["rm", "-rf", str(batch_dir)], check=True)
+
+
+def read_pod5_manifest(pod5_manifest_file):
+    with open(pod5_manifest_file, "r", encoding="utf-8") as f:
+        pod5_files = [Path(x.strip()) for x in f]
+    return pod5_files
+
+
+def get_slurm_job_id(slurm_id_file: Path) -> str:
+    with open(slurm_id_file, "r", encoding="utf-8") as f:
+        job_id = f.read().strip()
+    return job_id
+
+
+def is_completed(job_id):
+    res = subprocess.run(
+        [
+            "sacct",
+            "--job",
+            str(job_id),
+            "--parsable2",
+            "--format",
+            "state",
+            "--noheader",
+        ],
+        check=False,
+        capture_output=True,
+    )
+
+    return res.returncode == 0 and "COMPLETED" in str(res.stdout.strip())
+
+
+def is_in_queue(job_id):
+    res = subprocess.run(
+        ["squeue", "--job", str(job_id)],
+        check=False,
+        capture_output=True,
+    )
+    return res.returncode == 0
 
 
 def process_unbasecalled_pod5_dirs(pod5_dir: Pod5Directory, dry_run: bool):
@@ -19,30 +104,21 @@ def process_unbasecalled_pod5_dirs(pod5_dir: Pod5Directory, dry_run: bool):
         logger.info("No pod5 files to basecall in %s", pod5_dir)
         return
 
-    # Create a md5 hash for batch
-    string = "".join([str(x) for x in pod5_files_to_process])
-    md5_hash = hashlib.md5(string.encode()).hexdigest()
-
-    output_bam_batch = pod5_dir.output_bam_parts_dir / f"batch_{md5_hash}.bam"
-    output_bam_batch_manifest = output_bam_batch.parent / f"{output_bam_batch.name}.pod5_manifest.txt"
-    script_file = pod5_dir.script_dir / f"run_basecaller_batch_{md5_hash}.sh"
-
-    lock_files = pod5_dir.lock_files_from_list(pod5_files_to_process)
-    done_files = pod5_dir.done_files_from_list(pod5_files_to_process)
+    basecalling_batch = BasecallingBatch(
+        pod5_files=pod5_files_to_process,
+        batches_dir=pod5_dir.bam_batches_dir,
+        pod5_lock_files_dir=pod5_dir.basecalling_lock_files_dir,
+        pod5_done_files_dir=pod5_dir.basecalling_done_files_dir,
+    )
 
     # Submit job
     basecalling_model = get_basecalling_model(pod5_dir)
     modified_bases_models = get_modified_bases_models(basecalling_model)
-    submit_basecalling_to_slurm(
+    submit_basecalling_batch_to_slurm(
+        batch=basecalling_batch,
         basecalling_model=basecalling_model,
         modified_bases_models=modified_bases_models,
-        pod5_files=pod5_files_to_process,
-        output_bam=output_bam_batch,
-        output_bam_manifest=output_bam_batch_manifest,
         dry_run=dry_run,
-        script_file=script_file,
-        lock_files=lock_files,
-        done_files=done_files,
     )
 
 
@@ -162,22 +238,16 @@ def get_modified_bases_models(basecalling_model: Path) -> List[Path]:
     return modified_bases_models
 
 
-def submit_basecalling_to_slurm(
-    script_file: Path,
-    pod5_files: List[Path],
+def submit_basecalling_batch_to_slurm(
+    batch: BasecallingBatch,
     basecalling_model: Path,
     modified_bases_models: List[Path],
-    output_bam: Path,
-    output_bam_manifest: Path,
     dry_run: bool,
-    lock_files: List[Path],
-    done_files: List[Path],
 ):
-
     # Convert path lists to strings
-    pod5_files_str = " ".join([str(x) for x in pod5_files])
-    lock_files_str = " ".join([str(x) for x in lock_files])
-    done_files_str = " ".join([str(x) for x in done_files])
+    pod5_files_str = " ".join([str(x) for x in batch.pod5_files])
+    lock_files_str = " ".join([str(x) for x in batch.pod5_lock_files])
+    done_files_str = " ".join([str(x) for x in batch.pod5_done_files])
 
     # Construct SLURM job script
     modified_bases_models_arg = ""
@@ -196,7 +266,7 @@ def submit_basecalling_to_slurm(
 #SBATCH --mail-type         FAIL
 #SBATCH --mail-user         simon.drue@clin.au.dk
 
-        # Make sure .lock files are removed when job is done
+        # Set traps
         trap 'rm {lock_files_str}' EXIT
         
         set -eu
@@ -206,36 +276,33 @@ def submit_basecalling_to_slurm(
         START_S=$(date '+%s')
 
         # Create output directory
-        OUTDIR=$(dirname {output_bam})
+        OUTDIR=$(dirname {batch.bam})
         mkdir -p $OUTDIR
 
         # Create temp output file
-        TEMP_BAM_FILE=$(mktemp {output_bam}.tmp.XXXXXXXX)
+        TEMP_BAM_FILE=$(mktemp {batch.bam}.tmp.XXXXXXXX)
 
-        # Create temp directory with symlinks to pod5 files
-        TEMP_POD5_DIR=$(mktemp -d ${{OUTDIR}}/temp_pod5_input.XXXXXXXX)
+        # Create dir on scratch
+        POD5_DIR_TEMP=$TEMP/pod5
+        mkdir -p $POD5_DIR_TEMP
         
+        # Copy pod5 files to scratch
         POD5_FILES_LIST=({pod5_files_str})
-        
-        for pod5_file in ${{POD5_FILES_LIST[@]}}
+        for POD5_FILE in ${{POD5_FILES_LIST[@]}}
         do
-            ln -s ${{pod5_file}} ${{TEMP_POD5_DIR}}
+            cp $POD5_FILE $POD5_DIR_TEMP
         done
-
-        # Trap temp files
-        trap 'rm ${{TEMP_BAM_FILE}}' EXIT
-        trap 'rm -r ${{TEMP_POD5_DIR}}' EXIT
 
         # Run basecaller
         {DORADO_EXECUTABLE} basecaller \\
             --no-trim \\
             {modified_bases_models_arg} \\
             {basecalling_model} \\
-            {pod5_files_str} \\
+            $POD5_DIR_TEMP \\
         > ${{TEMP_BAM_FILE}}
 
         # Move temp file to output 
-        mv ${{TEMP_BAM_FILE}} {output_bam}
+        mv ${{TEMP_BAM_FILE}} {batch.bam}
 
         # Log end time
         END=$(date '+%Y-%m-%d %H:%M:%S')
@@ -245,13 +312,13 @@ def submit_basecalling_to_slurm(
         # Get size of input and output
         POD5_SIZE=$(du -sL {pod5_files_str} | cut -f1)
         POD5_COUNT=$(ls -1 {pod5_files_str} | grep ".pod5" | wc -l)
-        OUTPUT_BAM_SIZE=$(du -sL {output_bam} | cut -f1)
+        OUTPUT_BAM_SIZE=$(du -sL {batch.bam} | cut -f1)
 
         # Write log file
-        LOG_FILE={output_bam}.eldorado.basecaller.log
+        LOG_FILE={batch.bam}.eldorado.basecaller.log
         echo "pod5_size=$POD5_SIZE" >> ${{LOG_FILE}}
         echo "pod5_count=$POD5_COUNT" >> ${{LOG_FILE}}
-        echo "output_bam={output_bam}" >> ${{LOG_FILE}}
+        echo "output_bam={batch.bam}" >> ${{LOG_FILE}}
         echo "output_bam_size=$OUTPUT_BAM_SIZE" >> ${{LOG_FILE}}
         echo "slurm_job_id=$SLURM_JOB_ID" >> ${{LOG_FILE}}
         echo "start=$START" >> ${{LOG_FILE}}
@@ -261,31 +328,44 @@ def submit_basecalling_to_slurm(
         echo "basecalling_model={basecalling_model}" >> ${{LOG_FILE}}
         echo "modified_bases_models={modified_bases_models}" >> ${{LOG_FILE}}
 
-        # Write pod5 manifest and touch done files
-        for pod5_file in ${{POD5_FILES_LIST[@]}}
-        do
-            echo ${{pod5_file}} >> {output_bam_manifest}
-        done
-        
         # Touch done files
-        touch {done_files_str}
+        BATCH_DONE_FILE={batch.done_file}
+        mkdir -p $(dirname $BATCH_DONE_FILE)
+        touch $BATCH_DONE_FILE
+        
+        DONE_FILES_LIST=({done_files_str})
+        for DONE_FILE in ${{DONE_FILES_LIST[@]}}
+        do
+            mkdir -p $(dirname $DONE_FILE)
+            touch $DONE_FILE
+        done    
+        
 
     """
 
     # Write Slurm script to a file
-    script_file.parent.mkdir(exist_ok=True, parents=True)
-    with open(script_file, "w", encoding="utf-8") as f:
-        logger.info("Writing Slurm script to %s", script_file)
+    batch.script_file.parent.mkdir(exist_ok=True, parents=True)
+    with open(batch.script_file, "w", encoding="utf-8") as f:
+        logger.info("Writing Slurm script to %s", batch.script_file)
         f.write(slurm_script)
+
+    # Write pod5 manifest
+    with open(batch.pod5_manifest, "w", encoding="utf-8") as f:
+        for pod5_file in batch.pod5_files:
+            f.write(f"{pod5_file}\n")
 
     if dry_run:
         logger.info("Dry run. Skipping submission of basecalling job.")
         return
 
     # Create .lock files
-    for lock_file in lock_files:
+    for lock_file in batch.pod5_lock_files:
         lock_file.parent.mkdir(exist_ok=True, parents=True)
         lock_file.touch()
 
     # Submit the job using Slurm
-    subprocess.run(["sbatch", script_file], check=True)
+    job_id = subprocess.run(["sbatch", "--parsable", str(batch.script_file)], capture_output=True, check=True)
+
+    # Write job id to file
+    with open(batch.slurm_id_txt, "w", encoding="utf-8") as f:
+        f.write(job_id.stdout.decode().strip())

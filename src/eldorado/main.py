@@ -5,7 +5,7 @@ from typing import List
 import typer
 from typing_extensions import Annotated
 
-from eldorado.basecalling import process_unbasecalled_pod5_dirs, get_pod5_dirs_for_basecalling
+from eldorado.basecalling import process_unbasecalled_pod5_dirs, get_pod5_dirs_for_basecalling, cleanup_stalled_batch_basecalling_dirs
 from eldorado.merging import get_pod5_dirs_for_merging, submit_merging_to_slurm
 from eldorado.logging_config import get_log_file_handler, logger
 from eldorado.my_dataclasses import Pod5Directory
@@ -74,18 +74,20 @@ def run_basecalling(
 
         for pod5_dir in pod5_dirs_for_basecalling:
             logger.info("Processing %s", pod5_dir)
+            cleanup_stalled_batch_basecalling_dirs(pod5_dir)
             process_unbasecalled_pod5_dirs(pod5_dir, dry_run)
 
     # Merge bams for finished samples
     if pod5_dirs_for_merging := get_pod5_dirs_for_merging(pod5_dirs):
         logger.info("Found %s pod5 dirs for merging", len(pod5_dirs_for_merging))
+
         for pod5_dir in pod5_dirs_for_merging:
             logger.info("Processing %s", pod5_dir)
 
             submit_merging_to_slurm(
                 script_file=pod5_dir.script_dir / "merge_bams.sh",
-                bam_dir=pod5_dir.output_bam_parts_dir,
-                output_bam=pod5_dir.output_bam,
+                bam_dir=pod5_dir.bam_batches_dir,
+                output_bam=pod5_dir.bam,
                 dry_run=dry_run,
                 lock_file=pod5_dir.merge_lock_file,
             )
