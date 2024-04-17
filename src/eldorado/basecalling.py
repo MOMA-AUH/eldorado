@@ -6,9 +6,10 @@ from typing import List
 from eldorado.constants import DORADO_EXECUTABLE, MODELS_DIR
 from eldorado.logging_config import logger
 from eldorado.my_dataclasses import Pod5Directory, BasecallingBatch
+from eldorado.utils import is_in_queue
 
 
-def cleanup_stalled_batch_basecalling_dirs(pod5_dir: Pod5Directory):
+def cleanup_stalled_batch_basecalling_dirs_and_lock_files(pod5_dir: Pod5Directory):
 
     # Loop through all batch directories and collect inactive and active pod5 files
     active_pod5_files: set[Path] = set()
@@ -23,27 +24,18 @@ def cleanup_stalled_batch_basecalling_dirs(pod5_dir: Pod5Directory):
         if Path(batch_dir / "batch.done").exists():
             continue
 
-        # Mark as stalled if slurm id file is missing
+        # If job is in queue collect pod5 files and skip
         slurm_id_file = batch_dir / "slurm_id.txt"
-        if not slurm_id_file.exists():
-            stalled_batch_dirs.add(batch_dir)
-            continue
-
-        # Mark as stalled if pod5 manifest is missing
         pod5_manifest_file = batch_dir / "pod5_manifest.txt"
-        if not pod5_manifest_file.exists():
-            stalled_batch_dirs.add(batch_dir)
-            continue
+        if slurm_id_file.exists() and pod5_manifest_file.exists():
+            job_id = get_slurm_job_id(slurm_id_file)
+            if is_in_queue(job_id):
+                pod5_files = read_pod5_manifest(pod5_manifest_file)
+                active_pod5_files.update(pod5_files)
+                continue
 
-        # Mark as stalled if job is not in queue
-        job_id = get_slurm_job_id(slurm_id_file)
-        if not is_in_queue(job_id):
-            stalled_batch_dirs.add(batch_dir)
-            continue
-
-        # Collect pod5 files for active job
-        pod5_files = read_pod5_manifest(pod5_manifest_file)
-        active_pod5_files.update(pod5_files)
+        # If job is not in queue, mark as stalled
+        stalled_batch_dirs.add(batch_dir)
 
     # Remove lock files for pod5 files that are not in active batch directories
     for lock_file in pod5_dir.get_lock_files():
@@ -84,15 +76,6 @@ def is_completed(job_id):
     )
 
     return res.returncode == 0 and "COMPLETED" in str(res.stdout.strip())
-
-
-def is_in_queue(job_id):
-    res = subprocess.run(
-        ["squeue", "--job", str(job_id)],
-        check=False,
-        capture_output=True,
-    )
-    return res.returncode == 0
 
 
 def process_unbasecalled_pod5_dirs(pod5_dir: Pod5Directory, dry_run: bool, modifications: List[str]):
@@ -246,7 +229,6 @@ def submit_basecalling_batch_to_slurm(
 ):
     # Convert path lists to strings
     pod5_files_str = " ".join([str(x) for x in batch.pod5_files])
-    lock_files_str = " ".join([str(x) for x in batch.pod5_lock_files])
     done_files_str = " ".join([str(x) for x in batch.pod5_done_files])
 
     # Construct SLURM job script
@@ -259,16 +241,13 @@ def submit_basecalling_batch_to_slurm(
 #!/bin/bash
 #SBATCH --account           MomaDiagnosticsHg38
 #SBATCH --time              7-00:00:00
-#SBATCH --cpus-per-task     18
+#SBATCH --cpus-per-task     4
 #SBATCH --mem               190g
 #SBATCH --partition         gpu
 #SBATCH --gres              gpu:1
 #SBATCH --mail-type         FAIL
 #SBATCH --mail-user         simon.drue@clin.au.dk
 #SBATCH --output            {batch.script_file}.%j.out
-
-        # Set traps
-        trap 'rm {lock_files_str}' EXIT
         
         set -eu
 
@@ -342,7 +321,6 @@ def submit_basecalling_batch_to_slurm(
             mkdir -p $(dirname $DONE_FILE)
             touch $DONE_FILE
         done    
-        
 
     """
 

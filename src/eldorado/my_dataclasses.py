@@ -76,7 +76,10 @@ class Pod5Directory:
     basecalling_lock_files_dir: Path = field(init=False)
     basecalling_done_files_dir: Path = field(init=False)
     # Merging
+    merge_script_file: Path = field(init=False)
+    merge_job_id_file: Path = field(init=False)
     merge_lock_file: Path = field(init=False)
+    merge_done_file: Path = field(init=False)
 
     def __post_init__(self):
         # General
@@ -88,7 +91,10 @@ class Pod5Directory:
         self.basecalling_lock_files_dir = self.output_dir / "lock_files"
         self.basecalling_done_files_dir = self.output_dir / "done_files"
         # Merging
+        self.merge_script_file = self.output_dir / "merge_bams.sh"
+        self.merge_job_id_file = self.output_dir / "merge_job_id.txt"
         self.merge_lock_file = self.output_dir / "merge.lock"
+        self.merge_done_file = self.output_dir / "merge.done"
 
     def get_pod5_files(self) -> List[Path]:
         return list(self.path.glob("*.pod5"))

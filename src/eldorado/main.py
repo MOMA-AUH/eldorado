@@ -5,8 +5,8 @@ from typing import List
 import typer
 from typing_extensions import Annotated
 
-from eldorado.basecalling import process_unbasecalled_pod5_dirs, get_pod5_dirs_for_basecalling, cleanup_stalled_batch_basecalling_dirs
-from eldorado.merging import get_pod5_dirs_for_merging, submit_merging_to_slurm
+from eldorado.basecalling import process_unbasecalled_pod5_dirs, get_pod5_dirs_for_basecalling, cleanup_stalled_batch_basecalling_dirs_and_lock_files
+from eldorado.merging import get_pod5_dirs_for_merging, submit_merging_to_slurm, cleanup_merge_lock_files
 from eldorado.logging_config import get_log_file_handler, logger
 from eldorado.my_dataclasses import Pod5Directory
 from eldorado.constants import MODIFICATION_OPTIONS
@@ -45,7 +45,7 @@ def run_basecalling(
             "-m",
             help=f"Comma separated list of modifications. Options: {', '.join(MODIFICATION_OPTIONS)}",
         ),
-    ] = [],
+    ] = None,
     log_file: Annotated[
         Path | None,
         typer.Option(
@@ -69,12 +69,14 @@ def run_basecalling(
 ) -> None:
 
     # Handle modifications
+    if modifications is None:
+        modifications = []
+
     if modifications:
         for mod in modifications:
             if mod not in MODIFICATION_OPTIONS:
                 typer.echo(f"Invalid modification: {mod}. Please choose from: {', '.join(MODIFICATION_OPTIONS)}")
                 raise typer.Exit()
-
         # Filter to unique values
         modifications = list(set(modifications))
 
@@ -93,7 +95,7 @@ def run_basecalling(
 
         for pod5_dir in pod5_dirs_for_basecalling:
             logger.info("Processing %s", str(pod5_dir.path))
-            cleanup_stalled_batch_basecalling_dirs(pod5_dir)
+            cleanup_stalled_batch_basecalling_dirs_and_lock_files(pod5_dir)
             process_unbasecalled_pod5_dirs(pod5_dir, dry_run, modifications)
 
     # Merge bams for finished samples
@@ -102,19 +104,18 @@ def run_basecalling(
 
         for pod5_dir in pod5_dirs_for_merging:
             logger.info("Processing %s", str(pod5_dir.path))
-
-            # TODO: Add cleanup of stalled merging dirs
-            # TODO: Add samtools merge command
-
-            submit_merging_to_slurm(
-                script_file=pod5_dir.script_dir / "merge_bams.sh",
-                bam_dir=pod5_dir.bam_batches_dir,
-                output_bam=pod5_dir.bam,
-                dry_run=dry_run,
-                lock_file=pod5_dir.merge_lock_file,
-            )
+            cleanup_merge_lock_files(pod5_dir)
+            submit_merging_to_slurm(pod5_dir, dry_run)
 
     # Demultiplex samples
+    if pod5_dirs:
+        logger.info("Found %d pod5 dirs for demultiplexing", len(pod5_dirs))
+
+        for pod5_dir in pod5_dirs:
+            logger.info("Processing %s", str(pod5_dir.path))
+
+            print(pod5_dir.get_run_metadata())
+
     # TODO: Implement this
     # TODO: Check if samples are merged
     # TODO: Check if run kit is a barcoding kit
@@ -122,7 +123,7 @@ def run_basecalling(
 
 
 def find_pod5_dirs(root_dir: Path, pattern: str) -> List[Pod5Directory]:
-    return [Pod5Directory(pod5_dir) for pod5_dir in list(root_dir.glob(pattern=pattern))]
+    return [Pod5Directory(pod5_dir) for pod5_dir in root_dir.glob(pattern=pattern)]
 
 
 if __name__ == "__main__":
