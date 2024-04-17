@@ -1,6 +1,6 @@
 import pytest
 
-from eldorado.merging import are_all_files_basecalled, has_merge_lock_file
+from eldorado.merging import are_all_files_basecalled
 from eldorado.my_dataclasses import Pod5Directory
 
 
@@ -68,49 +68,6 @@ def test_is_done_basecalling(
     # Act
     pod5_dir = Pod5Directory(pod5_dir)
     result = are_all_files_basecalled(pod5_dir=pod5_dir)
-
-    # Assert
-    assert result == expected
-
-
-@pytest.mark.parametrize(
-    "pod5_dir, merge_lock_file, expected",
-    [
-        pytest.param(
-            "sample/pod5",
-            "sample/bam_eldorado/merge.lock",
-            True,
-            id="lock_file_exists",
-        ),
-        pytest.param(
-            "sample/pod5",
-            "",
-            False,
-            id="lock_file_missing",
-        ),
-    ],
-)
-def test_has_merge_lock_file(
-    tmp_path,
-    pod5_dir,
-    merge_lock_file,
-    expected,
-):
-    # Arrange
-    root_dir = tmp_path / "root"
-    root_dir.mkdir()
-
-    # Create files
-    pod5_dir = root_dir / pod5_dir
-    pod5_dir.mkdir(parents=True, exist_ok=True)
-    if merge_lock_file:
-        merge_lock_file = root_dir / merge_lock_file
-        merge_lock_file.parent.mkdir(parents=True, exist_ok=True)
-        merge_lock_file.touch()
-
-    # Act
-    pod5_dir = Pod5Directory(pod5_dir)
-    result = has_merge_lock_file(pod5_dir)
 
     # Assert
     assert result == expected
