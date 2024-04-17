@@ -18,8 +18,6 @@ def submit_merging_to_slurm(
     bam_batch_files = bam_dir.glob("*.bam")
     bam_batch_files_str = " ".join([str(x) for x in bam_batch_files])
 
-    # TODO: Control logging to file
-
     # Construct SLURM job script
     slurm_script = f"""\
 #!/bin/bash
@@ -29,12 +27,14 @@ def submit_merging_to_slurm(
 #SBATCH --mem               32g
 #SBATCH --mail-type         FAIL
 #SBATCH --mail-user         simon.drue@clin.au.dk
+#SBATCH --output            {script_file}.%j.out
 
+
+        set -eu
+        
         # Make sure .lock files are removed when job is done
         trap 'rm {lock_file}' EXIT
         
-        set -eu
-
         # Log start time
         START=$(date '+%Y-%m-%d %H:%M:%S')
         START_S=$(date '+%s')
@@ -63,13 +63,15 @@ def submit_merging_to_slurm(
         END_S=$(date +%s)
         RUNTIME=$((END_S-START_S))
 
-        # Get size of input and output
+        # Get size of output
         OUTPUT_BAM_SIZE=$(du -sL {output_bam} | cut -f1)
+        BAM_READ_COUNT=$(samtools view -c {output_bam})
 
         # Write log file
         LOG_FILE={output_bam}.eldorado.basecaller.log
         echo "output_bam={output_bam}" >> ${{LOG_FILE}}
         echo "output_bam_size=$OUTPUT_BAM_SIZE" >> ${{LOG_FILE}}
+        echo "bam_read_count=$BAM_READ_COUNT" >> ${{LOG_FILE}}
         echo "slurm_job_id=$SLURM_JOB_ID" >> ${{LOG_FILE}}
         echo "start=$START" >> ${{LOG_FILE}}
         echo "end=$END" >> ${{LOG_FILE}}
@@ -80,7 +82,7 @@ def submit_merging_to_slurm(
     # Write Slurm script to a file
     script_file.parent.mkdir(exist_ok=True, parents=True)
     with open(script_file, "w", encoding="utf-8") as f:
-        logger.info("Writing Slurm script to %s", script_file)
+        logger.info("Writing Slurm script to %s", str(script_file))
         f.write(slurm_script)
 
     if dry_run:

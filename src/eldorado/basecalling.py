@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 from typing import List
 
-from eldorado.constants import DORADO_EXECUTABLE, MODELS_DIR, MODIFICATIONS
+from eldorado.constants import DORADO_EXECUTABLE, MODELS_DIR
 from eldorado.logging_config import logger
 from eldorado.my_dataclasses import Pod5Directory, BasecallingBatch
 
@@ -52,7 +52,7 @@ def cleanup_stalled_batch_basecalling_dirs(pod5_dir: Pod5Directory):
 
     # Remove stalled batch directories
     for batch_dir in stalled_batch_dirs:
-        logger.info("Removing stalled batch directory %s", batch_dir)
+        logger.info("Removing stalled batch directory %s", str(batch_dir))
         subprocess.run(["rm", "-rf", str(batch_dir)], check=True)
 
 
@@ -95,13 +95,13 @@ def is_in_queue(job_id):
     return res.returncode == 0
 
 
-def process_unbasecalled_pod5_dirs(pod5_dir: Pod5Directory, dry_run: bool):
+def process_unbasecalled_pod5_dirs(pod5_dir: Pod5Directory, dry_run: bool, modifications: List[str]):
 
     pod5_files_to_process = pod5_dir.get_pod5_files_for_basecalling()
 
     # Skip if no pod5 files to basecall
     if not pod5_files_to_process:
-        logger.info("No pod5 files to basecall in %s", pod5_dir)
+        logger.info("No pod5 files to basecall")
         return
 
     basecalling_batch = BasecallingBatch(
@@ -113,7 +113,7 @@ def process_unbasecalled_pod5_dirs(pod5_dir: Pod5Directory, dry_run: bool):
 
     # Submit job
     basecalling_model = get_basecalling_model(pod5_dir)
-    modified_bases_models = get_modified_bases_models(basecalling_model)
+    modified_bases_models = get_modified_bases_models(basecalling_model.name, MODELS_DIR, modifications)
     submit_basecalling_batch_to_slurm(
         batch=basecalling_batch,
         basecalling_model=basecalling_model,
@@ -224,14 +224,14 @@ def get_basecalling_model(run: Pod5Directory) -> Path:
     return basecalling_model
 
 
-def get_modified_bases_models(basecalling_model: Path) -> List[Path]:
+def get_modified_bases_models(basecalling_model: str, model_dir: Path, modifications: List[str]) -> List[Path]:
 
     modified_bases_models = []
 
     # Get all modified base models based on base model
-    for mod in MODIFICATIONS:
+    for mod in modifications:
         # If more than one model found, select the latest one and add it to the list
-        if mod_models := list(MODELS_DIR.glob(f"{basecalling_model.name}*{mod}*")):
+        if mod_models := list(model_dir.glob(f"{basecalling_model}*{mod}*")):
             latest_mod_model = get_latest_version(mod_models)
             modified_bases_models.append(latest_mod_model)
 
@@ -265,6 +265,7 @@ def submit_basecalling_batch_to_slurm(
 #SBATCH --gres              gpu:1
 #SBATCH --mail-type         FAIL
 #SBATCH --mail-user         simon.drue@clin.au.dk
+#SBATCH --output            {batch.script_file}.%j.out
 
         # Set traps
         trap 'rm {lock_files_str}' EXIT
@@ -290,7 +291,7 @@ def submit_basecalling_batch_to_slurm(
         POD5_FILES_LIST=({pod5_files_str})
         for POD5_FILE in ${{POD5_FILES_LIST[@]}}
         do
-            cp $POD5_FILE $POD5_DIR_TEMP
+            ln -s $POD5_FILE $POD5_DIR_TEMP
         done
 
         # Run basecaller
@@ -313,6 +314,7 @@ def submit_basecalling_batch_to_slurm(
         POD5_SIZE=$(du -sL {pod5_files_str} | cut -f1)
         POD5_COUNT=$(ls -1 {pod5_files_str} | grep ".pod5" | wc -l)
         OUTPUT_BAM_SIZE=$(du -sL {batch.bam} | cut -f1)
+        BAM_READ_COUNT=$(samtools view -c {batch.bam})
 
         # Write log file
         LOG_FILE={batch.bam}.eldorado.basecaller.log
@@ -320,6 +322,7 @@ def submit_basecalling_batch_to_slurm(
         echo "pod5_count=$POD5_COUNT" >> ${{LOG_FILE}}
         echo "output_bam={batch.bam}" >> ${{LOG_FILE}}
         echo "output_bam_size=$OUTPUT_BAM_SIZE" >> ${{LOG_FILE}}
+        echo "bam_read_count=$BAM_READ_COUNT" >> ${{LOG_FILE}}
         echo "slurm_job_id=$SLURM_JOB_ID" >> ${{LOG_FILE}}
         echo "start=$START" >> ${{LOG_FILE}}
         echo "end=$END" >> ${{LOG_FILE}}
@@ -346,7 +349,7 @@ def submit_basecalling_batch_to_slurm(
     # Write Slurm script to a file
     batch.script_file.parent.mkdir(exist_ok=True, parents=True)
     with open(batch.script_file, "w", encoding="utf-8") as f:
-        logger.info("Writing Slurm script to %s", batch.script_file)
+        logger.info("Writing Slurm script to %s", str(batch.script_file))
         f.write(slurm_script)
 
     # Write pod5 manifest

@@ -1,6 +1,8 @@
+from typing import List
+
 import pytest
 
-from eldorado.basecalling import is_basecalling_complete, contains_pod5_files, is_version_newer, get_latest_version
+from eldorado.basecalling import is_basecalling_complete, contains_pod5_files, is_version_newer, get_latest_version, get_modified_bases_models
 
 
 @pytest.mark.parametrize(
@@ -196,3 +198,68 @@ def test_get_latest_version(tmp_path, models, expected):
 
     # Assert
     assert result.name == expected
+
+
+@pytest.mark.parametrize(
+    "files_in_model_dir, model, mods, expected",
+    [
+        pytest.param(
+            [],
+            "",
+            [],
+            [],
+            id="empty",
+        ),
+        pytest.param(
+            [
+                "dna_r10.4.1_e8.2_400bps_hac@v4.3.0",
+            ],
+            "dna_r10.4.1_e8.2_400bps_hac@v4.3.0",
+            [],
+            [],
+            id="no_mods",
+        ),
+        pytest.param(
+            [
+                "dna_r10.4.1_e8.2_400bps_hac@v4.3.0",
+                "dna_r10.4.1_e8.2_400bps_hac@v4.3.0_6mA@v2",
+            ],
+            "dna_r10.4.1_e8.2_400bps_hac@v4.3.0",
+            ["6mA"],
+            ["dna_r10.4.1_e8.2_400bps_hac@v4.3.0_6mA@v2"],
+            id="single_model",
+        ),
+        pytest.param(
+            [
+                "dna_r10.4.1_e8.2_400bps_hac@v4.3.0",
+                "dna_r10.4.1_e8.2_400bps_hac@v4.3.0_5mCG_5hmCG@v1",
+                "dna_r10.4.1_e8.2_400bps_hac@v4.3.0_6mA@v2",
+            ],
+            "dna_r10.4.1_e8.2_400bps_hac@v4.3.0",
+            ["5mCG_5hmCG", "6mA"],
+            [
+                "dna_r10.4.1_e8.2_400bps_hac@v4.3.0_5mCG_5hmCG@v1",
+                "dna_r10.4.1_e8.2_400bps_hac@v4.3.0_6mA@v2",
+            ],
+            id="multiple_models",
+        ),
+    ],
+)
+def test_get_modified_bases_models(tmp_path, files_in_model_dir: List[str], model: str, mods: List[str], expected: List[str]):
+    # Arrange
+    model_dir_path = tmp_path / "models"
+    model_dir_path.mkdir()
+
+    # Add root dir to files
+    models = [model_dir_path / x for x in files_in_model_dir]
+    expected = [model_dir_path / x for x in expected]
+
+    # Create model files
+    for file in models:
+        file.touch()
+
+    # Act
+    result = get_modified_bases_models(model, model_dir_path, mods)
+
+    # Assert
+    assert result == expected

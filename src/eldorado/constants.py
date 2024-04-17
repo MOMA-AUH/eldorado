@@ -3,7 +3,7 @@ from pathlib import Path
 DORADO_EXECUTABLE = "/faststorage/project/MomaReference/BACKUP/nanopore/software/dorado/dorado-0.6.0-linux-x64/bin/dorado"
 
 MODELS_DIR = Path("/faststorage/project/MomaReference/BACKUP/nanopore/models/dorado_models")
-MODIFICATIONS = ["5mCG_5hmCG", "6mA"]
+MODIFICATION_OPTIONS = ["5mCG_5hmCG", "6mA"]
 
 BARCODING_KITS = [
     "EXP-NBD103",
