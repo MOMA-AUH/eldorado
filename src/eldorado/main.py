@@ -8,8 +8,8 @@ from typing_extensions import Annotated
 from eldorado.basecalling import process_unbasecalled_pod5_dirs, get_pod5_dirs_for_basecalling, cleanup_stalled_batch_basecalling_dirs_and_lock_files
 from eldorado.merging import get_pod5_dirs_for_merging, submit_merging_to_slurm, cleanup_merge_lock_files
 from eldorado.logging_config import get_log_file_handler, logger
-from eldorado.my_dataclasses import Pod5Directory
 from eldorado.constants import MODIFICATION_OPTIONS
+from eldorado.utils import find_pod5_dirs
 
 # Set up the CLI
 app = typer.Typer()
@@ -108,7 +108,7 @@ def run_basecalling(
             submit_merging_to_slurm(pod5_dir, dry_run)
 
     # Demultiplex samples
-    if pod5_dirs:
+    if False and pod5_dirs:
         logger.info("Found %d pod5 dirs for demultiplexing", len(pod5_dirs))
 
         for pod5_dir in pod5_dirs:
@@ -120,10 +120,6 @@ def run_basecalling(
     # TODO: Check if samples are merged
     # TODO: Check if run kit is a barcoding kit
     # TODO: Check for sample sheet
-
-
-def find_pod5_dirs(root_dir: Path, pattern: str) -> List[Pod5Directory]:
-    return [Pod5Directory(pod5_dir) for pod5_dir in root_dir.glob(pattern=pattern)]
 
 
 if __name__ == "__main__":

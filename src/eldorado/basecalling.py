@@ -78,7 +78,7 @@ def is_completed(job_id):
     return res.returncode == 0 and "COMPLETED" in str(res.stdout.strip())
 
 
-def process_unbasecalled_pod5_dirs(pod5_dir: Pod5Directory, dry_run: bool, modifications: List[str]):
+def process_unbasecalled_pod5_dirs(pod5_dir: Pod5Directory, modifications: List[str], dry_run: bool):
 
     pod5_files_to_process = pod5_dir.get_pod5_files_for_basecalling()
 
@@ -107,17 +107,10 @@ def process_unbasecalled_pod5_dirs(pod5_dir: Pod5Directory, dry_run: bool, modif
 
 def get_pod5_dirs_for_basecalling(pod5_dirs: List[Pod5Directory]) -> List[Pod5Directory]:
 
-    # Keep only pod5 directories that has pod5 files
-    pod5_dirs = [x for x in pod5_dirs if contains_pod5_files(x.path)]
-
     # Keep only pod5 dirs that are not done basecalling
     pod5_dirs = [x for x in pod5_dirs if not is_basecalling_complete(x.path)]
 
     return pod5_dirs
-
-
-def contains_pod5_files(x: Path) -> bool:
-    return any(x.glob("*.pod5"))
 
 
 def is_basecalling_complete(pod5_dir: Path) -> bool:
