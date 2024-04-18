@@ -114,13 +114,23 @@ def submit_merging_to_slurm(pod5_dir: Pod5Directory, dry_run: bool):
 
 def get_pod5_dirs_for_merging(pod5_dirs: List[Pod5Directory]) -> List[Pod5Directory]:
 
-    pod5_dirs = [x for x in pod5_dirs if not x.merge_done_file.exists()]
+    pod5_dirs = [x for x in pod5_dirs if check_relevant_dirs_for_merging(x)]
 
-    pod5_dirs = [x for x in pod5_dirs if not x.merge_lock_file.exists()]
+    pod5_dirs = [x for x in pod5_dirs if not x.merge_done_file.exists() and not x.merge_lock_file.exists()]
 
     pod5_dirs = [x for x in pod5_dirs if are_all_files_basecalled(x)]
 
     return pod5_dirs
+
+
+def check_relevant_dirs_for_merging(pod5_dir: Pod5Directory):
+    return (
+        pod5_dir.output_dir.exists()
+        and pod5_dir.output_dir.is_dir()
+        and pod5_dir.bam_batches_dir.exists()
+        and pod5_dir.bam_batches_dir.is_dir()
+        and pod5_dir.bam_batches_dir.glob("*/*.bam")  # Check if there are any bam files in a subdirectory (batch directory)
+    )
 
 
 def are_all_files_basecalled(pod5_dir: Pod5Directory) -> bool:
