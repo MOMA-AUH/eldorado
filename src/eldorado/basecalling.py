@@ -16,10 +16,6 @@ def cleanup_stalled_batch_basecalling_dirs_and_lock_files(pod5_dir: Pod5Director
     stalled_batch_dirs: set[Path] = set()
     for batch_dir in pod5_dir.bam_batches_dir.glob("*"):
 
-        # Skip if bam already exists
-        if any(batch_dir.glob("*.bam")):
-            continue
-
         # Skip if job is done
         if Path(batch_dir / "batch.done").exists():
             continue
@@ -78,21 +74,28 @@ def is_completed(job_id):
     return res.returncode == 0 and "COMPLETED" in str(res.stdout.strip())
 
 
-def process_unbasecalled_pod5_dirs(pod5_dir: Pod5Directory, modifications: List[str], dry_run: bool):
-
-    pod5_files_to_process = pod5_dir.get_pod5_files_for_basecalling()
-
-    # Skip if no pod5 files to basecall
-    if not pod5_files_to_process:
-        logger.info("No pod5 files to basecall")
-        return
+def process_unbasecalled_pod5_files(
+    pod5_dir: Pod5Directory,
+    modifications: List[str],
+    min_batch_size: int,
+    dry_run: bool,
+):
 
     basecalling_batch = BasecallingBatch(
-        pod5_files=pod5_files_to_process,
+        pod5_files=get_pod5_files_for_basecalling(pod5_dir),
         batches_dir=pod5_dir.bam_batches_dir,
         pod5_lock_files_dir=pod5_dir.basecalling_lock_files_dir,
         pod5_done_files_dir=pod5_dir.basecalling_done_files_dir,
     )
+
+    # Skip if batch is too small and not all pod5 files are transfered
+    if len(basecalling_batch.pod5_files) < min_batch_size or pod5_dir.all_pod5_files_transfered():
+        logger.info(
+            "Skipping. Too few pod5 files to basecall (%d<%d).",
+            len(basecalling_batch.pod5_files),
+            min_batch_size,
+        )
+        return
 
     # Submit job
     basecalling_model = get_basecalling_model(pod5_dir)
@@ -107,17 +110,32 @@ def process_unbasecalled_pod5_dirs(pod5_dir: Pod5Directory, modifications: List[
 
 def get_pod5_dirs_for_basecalling(pod5_dirs: List[Pod5Directory]) -> List[Pod5Directory]:
 
-    # Keep only pod5 dirs that are not done basecalling
-    pod5_dirs = [x for x in pod5_dirs if not is_basecalling_complete(x.path)]
+    # Keep only pod5 dirs that have unbasecalled pod5 files
+    pod5_dirs = [x for x in pod5_dirs if has_unbasecalled_pod5_files(x)]
 
     return pod5_dirs
 
 
-def is_basecalling_complete(pod5_dir: Path) -> bool:
-    any_existing_bam_outputs = any(pod5_dir.parent.glob("bam*/*.bam"))
-    any_existing_fastq_outputs = any(pod5_dir.parent.glob("fastq*/*.fastq*"))
+def get_pod5_files_for_basecalling(pod5_dir: Pod5Directory):
+    pod5_files = pod5_dir.get_pod5_files()
 
-    return any_existing_bam_outputs or any_existing_fastq_outputs
+    # Filter pod5 files for which there is a lock file or a done file
+    pod5_files = [pod5 for pod5 in pod5_files if f"{pod5.name}.lock" not in [y.name for y in pod5_dir.get_lock_files()]]
+    pod5_files = [pod5 for pod5 in pod5_files if f"{pod5.name}.done" not in [y.name for y in pod5_dir.get_done_files()]]
+
+    return pod5_files
+
+
+def has_unbasecalled_pod5_files(pod5_dir: Pod5Directory) -> bool:
+    # Number of lock and done files
+    lock_files = len(list(pod5_dir.get_lock_files()))
+    done_files = len(list(pod5_dir.get_done_files()))
+
+    # Number of pod5 files
+    pod5_files = len(list(pod5_dir.get_pod5_files()))
+
+    # If number of lock/done files is less than number of pod5 files, return True
+    return lock_files + done_files < pod5_files
 
 
 def is_version_newer(current_version, candidate_version):
@@ -222,6 +240,7 @@ def submit_basecalling_batch_to_slurm(
 ):
     # Convert path lists to strings
     pod5_files_str = " ".join([str(x) for x in batch.pod5_files])
+    lock_files_str = " ".join([str(x) for x in batch.pod5_lock_files])
     done_files_str = " ".join([str(x) for x in batch.pod5_done_files])
 
     # Construct SLURM job script
@@ -243,6 +262,12 @@ def submit_basecalling_batch_to_slurm(
 #SBATCH --output            {batch.script_file}.%j.out
         
         set -eu
+        # Trap lock files
+        LOCK_FILES_LIST=({lock_files_str})
+        for LOCK_FILE in ${{LOCK_FILES_LIST[@]}}
+        do
+            trap 'rm -f $LOCK_FILE' EXIT
+        done
 
         # Log start time
         START=$(date '+%Y-%m-%d %H:%M:%S')
@@ -252,14 +277,14 @@ def submit_basecalling_batch_to_slurm(
         OUTDIR=$(dirname {batch.bam})
         mkdir -p $OUTDIR
 
-        # Create temp output file
-        TEMP_BAM_FILE=$(mktemp {batch.bam}.tmp.XXXXXXXX)
+        # Create temp bam on scratch
+        TEMP_BAM_FILE="$TEMPDIR/out.bam"
 
-        # Create dir on scratch
-        POD5_DIR_TEMP=$TEMP/pod5
+        # Create pod5 dir on scratch
+        POD5_DIR_TEMP="$TEMPDIR/pod5"
         mkdir -p $POD5_DIR_TEMP
         
-        # Copy pod5 files to scratch
+        # Link pod5 files to scratch
         POD5_FILES_LIST=({pod5_files_str})
         for POD5_FILE in ${{POD5_FILES_LIST[@]}}
         do
@@ -332,13 +357,17 @@ def submit_basecalling_batch_to_slurm(
         logger.info("Dry run. Skipping submission of basecalling job.")
         return
 
+    # Submit the job using Slurm
+    job_id = subprocess.run(
+        ["sbatch", "--parsable", str(batch.script_file)],
+        capture_output=True,
+        check=True,
+    )
+
     # Create .lock files
     for lock_file in batch.pod5_lock_files:
         lock_file.parent.mkdir(exist_ok=True, parents=True)
         lock_file.touch()
-
-    # Submit the job using Slurm
-    job_id = subprocess.run(["sbatch", "--parsable", str(batch.script_file)], capture_output=True, check=True)
 
     # Write job id to file
     with open(batch.slurm_id_txt, "w", encoding="utf-8") as f:

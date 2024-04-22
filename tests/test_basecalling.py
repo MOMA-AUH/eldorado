@@ -1,126 +1,18 @@
 from typing import List
 
+from pathlib import Path
 import pytest
 
-from eldorado.basecalling import is_basecalling_complete, contains_pod5_files, is_version_newer, get_latest_version, get_modified_bases_models
-
-
-@pytest.mark.parametrize(
-    "pod5_files, other_files, expected",
-    [
-        pytest.param(
-            ["pod5/file.pod5"],
-            [],
-            False,
-            id="no_files",
-        ),
-        pytest.param(
-            ["pod5/file.pod5"],
-            ["bam/file.bam"],
-            True,
-            id="existing_bam",
-        ),
-        pytest.param(
-            ["pod5/file.pod5"],
-            ["fastq/file.fastq"],
-            True,
-            id="existing_fastq",
-        ),
-        pytest.param(
-            ["pod5/file.pod5"],
-            ["fastq/file.fastq.gz"],
-            True,
-            id="existing_fastq_gz",
-        ),
-        pytest.param(
-            ["pod5/file.pod5"],
-            ["fastq/file.txt", "sample/bam/file.txt"],
-            False,
-            id="existing_irrelevant_file",
-        ),
-        pytest.param(
-            ["pod5/file.pod5"],
-            ["bam_suffix/file.bam"],
-            True,
-            id="suffix_in_bam_dir_name",
-        ),
-        pytest.param(
-            ["pod5/file.pod5"],
-            ["fastq_suffix/file.fastq"],
-            True,
-            id="suffix_in_fastq_dir_name",
-        ),
-    ],
+import eldorado
+from eldorado.basecalling import (
+    is_version_newer,
+    get_latest_version,
+    get_modified_bases_models,
+    process_unbasecalled_pod5_files,
+    cleanup_stalled_batch_basecalling_dirs_and_lock_files,
 )
-def test_get_pod5_dirs_for_basecalling(tmp_path, pod5_files, other_files, expected):
-    # Arrange
-    root_dir = tmp_path / "root"
-    root_dir.mkdir()
-
-    # Add root dir to files
-    pod5_files = [root_dir / x for x in pod5_files]
-    other_files = [root_dir / x for x in other_files]
-
-    # Create pod5 files
-    for file in pod5_files:
-        file.parent.mkdir(parents=True, exist_ok=True)
-        file.touch()
-
-    # Create bam files
-    for file in other_files:
-        file.parent.mkdir(parents=True, exist_ok=True)
-        file.touch()
-
-    # Act
-    pod5_dir = pod5_files[0].parent
-    result = is_basecalling_complete(pod5_dir)
-
-    assert result == expected
-
-
-@pytest.mark.parametrize(
-    "pod5_files, expected",
-    [
-        pytest.param(
-            [],
-            False,
-            id="empty",
-        ),
-        pytest.param(
-            ["file.pod5"],
-            True,
-            id="single_file",
-        ),
-        pytest.param(
-            ["file.pod5", "file2.pod5"],
-            True,
-            id="multiple_files",
-        ),
-        pytest.param(
-            ["file.txt"],
-            False,
-            id="wrong_extension",
-        ),
-    ],
-)
-def test_contains_pod5_files(tmp_path, pod5_files, expected):
-    # Arrange
-    root_dir = tmp_path / "root"
-    root_dir.mkdir()
-
-    # Add root dir to files
-    pod5_files = [root_dir / x for x in pod5_files]
-
-    # Create pod5 files
-    for file in pod5_files:
-        file.parent.mkdir(parents=True, exist_ok=True)
-        file.touch()
-
-    # Act
-    result = contains_pod5_files(root_dir)
-
-    # Assert
-    assert result == expected
+from eldorado.my_dataclasses import Pod5Directory
+import eldorado.utils
 
 
 @pytest.mark.parametrize(
@@ -263,3 +155,227 @@ def test_get_modified_bases_models(tmp_path, files_in_model_dir: List[str], mode
 
     # Assert
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "pod5_dir, existing_files, min_batch_size, expected_generated_files",
+    [
+        pytest.param(
+            "pod5",
+            [
+                "pod5/file.pod5",
+            ],
+            1,
+            [
+                "bam_eldorado/basecalling/batches/1234/pod5_manifest.txt",
+                "bam_eldorado/basecalling/batches/1234/run_basecaller_batch_1234.sh",
+                "bam_eldorado/basecalling/batches/1234/slurm_id.txt",
+                "bam_eldorado/basecalling/lock_files/file.pod5.lock",
+            ],
+            id="Single pod5 file needs to be basecalled",
+        ),
+        pytest.param(
+            "pod5",
+            [
+                "pod5/file_1.pod5",
+                "pod5/file_2.pod5",
+            ],
+            1,
+            [
+                "bam_eldorado/basecalling/batches/1234/pod5_manifest.txt",
+                "bam_eldorado/basecalling/batches/1234/run_basecaller_batch_1234.sh",
+                "bam_eldorado/basecalling/batches/1234/slurm_id.txt",
+                "bam_eldorado/basecalling/lock_files/file_1.pod5.lock",
+                "bam_eldorado/basecalling/lock_files/file_2.pod5.lock",
+            ],
+            id="Two pod5 files need to be basecalled",
+        ),
+        pytest.param(
+            "pod5",
+            [
+                "pod5/file.pod5",
+                "bam_eldorado/basecalling/lock_files/file.pod5.lock",
+            ],
+            1,
+            [],
+            id="Skip pod5 file with lock file",
+        ),
+        pytest.param(
+            "pod5",
+            [
+                "pod5/file.pod5",
+                "bam_eldorado/basecalling/done_files/file.pod5.done",
+            ],
+            1,
+            [],
+            id="Skip pod5 file with done file",
+        ),
+        pytest.param(
+            "pod5",
+            [
+                "pod5/file.pod5",
+                "pod5/new_file.pod5",
+                "bam_eldorado/basecalling/lock_files/file.pod5.lock",
+            ],
+            1,
+            [
+                "bam_eldorado/basecalling/batches/1234/pod5_manifest.txt",
+                "bam_eldorado/basecalling/batches/1234/run_basecaller_batch_1234.sh",
+                "bam_eldorado/basecalling/batches/1234/slurm_id.txt",
+                "bam_eldorado/basecalling/lock_files/new_file.pod5.lock",
+            ],
+            id="One pod5 locked and one new pod5 file",
+        ),
+        pytest.param(
+            "pod5",
+            [
+                "pod5/new_file.pod5",
+            ],
+            2,
+            [],
+            id="Single new pod5 file with min batch size 2",
+        ),
+        pytest.param(
+            "pod5",
+            [
+                "pod5/file.pod5",
+                "pod5/new_file.pod5",
+                "bam_eldorado/basecalling/lock_files/file.pod5.lock",
+            ],
+            2,
+            [],
+            id="One pod5 locked and one new pod5 file with min batch size 2",
+        ),
+    ],
+)
+def test_process_unbasecalled_pod5_dirs(monkeypatch, tmp_path, pod5_dir, existing_files, min_batch_size, expected_generated_files):
+    # Mock time
+    monkeypatch.setattr(eldorado.my_dataclasses.time, "time", lambda: 1234)
+
+    # Mock is_file_inactive
+    def mock_is_file_inactive(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(eldorado.my_dataclasses, "is_file_inactive", mock_is_file_inactive)
+
+    # Mock get model
+    def mock_get_basecalling_model(*args, **kwargs):
+        return Path("path/to/model")
+
+    monkeypatch.setattr(eldorado.basecalling, "get_basecalling_model", mock_get_basecalling_model)
+
+    class MockCompletedProcess:
+        stdout = b"12345678"
+
+    def mock_subprocess_run(*args, **kwargs):
+        return MockCompletedProcess()
+
+    monkeypatch.setattr(eldorado.basecalling.subprocess, "run", mock_subprocess_run)
+
+    # Arrange
+    root_dir = tmp_path / "root"
+    root_dir.mkdir()
+
+    # Insert root dir
+    existing_files = [root_dir / file for file in existing_files]
+    expected_generated_files = [root_dir / file for file in expected_generated_files]
+
+    # Create existing files
+    for file in existing_files:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.touch()
+
+    # Act
+    pod5_dir = root_dir / pod5_dir
+    pod5_dir = Pod5Directory(pod5_dir)
+    process_unbasecalled_pod5_files(
+        pod5_dir=pod5_dir,
+        modifications=[],
+        min_batch_size=min_batch_size,
+        dry_run=False,
+    )
+
+    # Assert
+    all_files = {x for x in root_dir.rglob("*") if x.is_file()}
+    new_files = all_files - set(existing_files)
+
+    assert new_files == set(expected_generated_files)
+
+
+@pytest.mark.parametrize(
+    "pod5_dir, existing_files, is_in_queue, expected_files_after_cleanup",
+    [
+        pytest.param(
+            "pod5",
+            [],
+            False,
+            [],
+            id="Empty",
+        ),
+        pytest.param(
+            "pod5",
+            [
+                "pod5/file.pod5",
+                "bam_eldorado/basecalling/lock_files/file.pod5.lock",
+            ],
+            False,
+            [
+                "pod5/file.pod5",
+            ],
+            id="Pod5 file not in queue",
+        ),
+        pytest.param(
+            "pod5",
+            [
+                "pod5/file.pod5",
+                "bam_eldorado/basecalling/batches/1234/pod5_manifest.txt",
+                "bam_eldorado/basecalling/batches/1234/slurm_id.txt",
+                "bam_eldorado/basecalling/lock_files/file.pod5.lock",
+            ],
+            True,
+            [
+                "pod5/file.pod5",
+                "bam_eldorado/basecalling/batches/1234/pod5_manifest.txt",
+                "bam_eldorado/basecalling/batches/1234/slurm_id.txt",
+            ],
+            id="Pod5 file in queue",
+        ),
+    ],
+)
+def test_cleanup_stalled_batch_basecalling_dirs_and_lock_files(
+    monkeypatch,
+    tmp_path,
+    pod5_dir,
+    existing_files,
+    is_in_queue,
+    expected_files_after_cleanup,
+):
+    # Mock is_file_inactive
+    def mock_is_in_queue(*args, **kwargs):
+        return is_in_queue
+
+    monkeypatch.setattr(eldorado.utils, "is_in_queue", mock_is_in_queue)
+
+    # Arrange
+    root_dir = tmp_path / "root"
+    root_dir.mkdir()
+
+    # Insert root dir
+    pod5_dir = root_dir / pod5_dir
+    existing_files = [root_dir / file for file in existing_files]
+    expected_files_after_cleanup = [root_dir / file for file in expected_files_after_cleanup]
+
+    # Create existing files
+    for file in existing_files:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.touch()
+
+    # Act
+    cleanup_stalled_batch_basecalling_dirs_and_lock_files(
+        pod5_dir=Pod5Directory(pod5_dir),
+    )
+
+    # Assert
+    all_files = {x for x in root_dir.rglob("*") if x.is_file()}
+
+    assert all_files == set(expected_files_after_cleanup)

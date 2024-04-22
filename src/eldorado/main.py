@@ -5,11 +5,12 @@ from typing import List
 import typer
 from typing_extensions import Annotated
 
-from eldorado.basecalling import process_unbasecalled_pod5_dirs, get_pod5_dirs_for_basecalling, cleanup_stalled_batch_basecalling_dirs_and_lock_files
+from eldorado.basecalling import process_unbasecalled_pod5_files, get_pod5_dirs_for_basecalling, cleanup_stalled_batch_basecalling_dirs_and_lock_files
 from eldorado.merging import get_pod5_dirs_for_merging, submit_merging_to_slurm, cleanup_merge_lock_files
+from eldorado.cleanup import get_pod5_dirs_for_cleanup, cleanup_finished_pod5_dir
 from eldorado.logging_config import get_log_file_handler, logger
 from eldorado.constants import MODIFICATION_OPTIONS
-from eldorado.utils import find_pod5_dirs
+from eldorado.utils import find_pod5_dirs_for_processing
 
 # Set up the CLI
 app = typer.Typer()
@@ -46,6 +47,14 @@ def run_basecalling(
             help=f"Comma separated list of modifications. Options: {', '.join(MODIFICATION_OPTIONS)}",
         ),
     ] = None,
+    min_batch_size: Annotated[
+        int,
+        typer.Option(
+            "--min-batch-size",
+            "-b",
+            help="Minimum batch size",
+        ),
+    ] = 1,
     log_file: Annotated[
         Path | None,
         typer.Option(
@@ -87,16 +96,27 @@ def run_basecalling(
 
     logger.info("Processing root dir: %s", str(root_dir))
 
-    pod5_dirs = find_pod5_dirs(root_dir, pattern)
+    pod5_dirs = find_pod5_dirs_for_processing(root_dir, pattern)
+
+    logger.info("Found %d pod5 dir(s) that needs processing", len(pod5_dirs))
+
+    # Clean up before processing
+    for pod5_dir in pod5_dirs:
+        cleanup_stalled_batch_basecalling_dirs_and_lock_files(pod5_dir)
+        cleanup_merge_lock_files(pod5_dir)
 
     # Basecall samples
     if pod5_dirs_for_basecalling := get_pod5_dirs_for_basecalling(pod5_dirs):
-        logger.info("Found %d pod5 dirs for basecalling", len(pod5_dirs_for_basecalling))
+        logger.info("Found %d pod5 dir(s) for basecalling", len(pod5_dirs_for_basecalling))
 
         for pod5_dir in pod5_dirs_for_basecalling:
             logger.info("Processing %s", str(pod5_dir.path))
-            cleanup_stalled_batch_basecalling_dirs_and_lock_files(pod5_dir)
-            process_unbasecalled_pod5_dirs(pod5_dir, dry_run, modifications)
+            process_unbasecalled_pod5_files(
+                pod5_dir=pod5_dir,
+                modifications=modifications,
+                min_batch_size=min_batch_size,
+                dry_run=dry_run,
+            )
 
     # Merge bams for finished samples
     if pod5_dirs_for_merging := get_pod5_dirs_for_merging(pod5_dirs):
@@ -104,8 +124,15 @@ def run_basecalling(
 
         for pod5_dir in pod5_dirs_for_merging:
             logger.info("Processing %s", str(pod5_dir.path))
-            cleanup_merge_lock_files(pod5_dir)
             submit_merging_to_slurm(pod5_dir, dry_run)
+
+    # Cleanup finished dirs
+    if pod5_dirs_for_cleanup := get_pod5_dirs_for_cleanup(pod5_dirs):
+        logger.info("Found %d pod5 dirs for cleanup", len(pod5_dirs_for_cleanup))
+
+        for pod5_dir in pod5_dirs_for_cleanup:
+            logger.info("Processing %s", str(pod5_dir.path))
+            cleanup_finished_pod5_dir(pod5_dir)
 
     # Demultiplex samples
     if False and pod5_dirs:

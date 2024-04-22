@@ -4,9 +4,10 @@ from typing import List
 
 import time
 import re
-import hashlib
 
 import pod5
+
+from eldorado.constants import MIN_TIME
 
 
 @dataclass
@@ -30,10 +31,8 @@ class BasecallingBatch:
     pod5_done_files: List[Path] = field(init=False)
 
     def __post_init__(self):
-        # Batch ID
-        # Create a md5 hash for batch
-        string = "".join([str(x) for x in self.pod5_files]) + str(time.time())
-        self.batch_id = hashlib.md5(string.encode()).hexdigest()
+        # Create batch id from current time
+        self.batch_id = str(int(time.time()))
 
         # Output files
         self.batch_dir = self.batches_dir / self.batch_id
@@ -70,53 +69,58 @@ class Pod5Directory:
     # General
     output_dir: Path = field(init=False)
     script_dir: Path = field(init=False)
+    final_bam: Path = field(init=False)
+
     # Basecalling
-    bam: Path = field(init=False)
+    basecalling_working_dir: Path = field(init=False)
     bam_batches_dir: Path = field(init=False)
     basecalling_lock_files_dir: Path = field(init=False)
     basecalling_done_files_dir: Path = field(init=False)
+
     # Merging
+    merging_working_dir: Path = field(init=False)
+    merged_bam: Path = field(init=False)
     merge_script_file: Path = field(init=False)
+    merge_log_file: Path = field(init=False)
     merge_job_id_file: Path = field(init=False)
     merge_lock_file: Path = field(init=False)
     merge_done_file: Path = field(init=False)
+    merge_pod5_manifest: Path = field(init=False)
 
     def __post_init__(self):
         # General
         self.output_dir = self.path.parent / (self.path.name.replace("pod5", "bam") + "_eldorado")
         self.script_dir = self.output_dir / "basecall_scripts"
+        self.final_bam = self.output_dir / "basecalled.bam"
+
         # Basecalling
-        self.bam = self.output_dir / "basecalled.bam"
-        self.bam_batches_dir = self.output_dir / "batches"
-        self.basecalling_lock_files_dir = self.output_dir / "lock_files"
-        self.basecalling_done_files_dir = self.output_dir / "done_files"
+        self.basecalling_working_dir = self.output_dir / "basecalling"
+        self.bam_batches_dir = self.basecalling_working_dir / "batches"
+        self.basecalling_lock_files_dir = self.basecalling_working_dir / "lock_files"
+        self.basecalling_done_files_dir = self.basecalling_working_dir / "done_files"
+
         # Merging
-        self.merge_script_file = self.output_dir / "merge_bams.sh"
-        self.merge_job_id_file = self.output_dir / "merge_job_id.txt"
-        self.merge_lock_file = self.output_dir / "merge.lock"
-        self.merge_done_file = self.output_dir / "merge.done"
+        self.merging_working_dir = self.output_dir / "merging"
+        self.merged_bam = self.merging_working_dir / "merged.bam"
+        self.merge_script_file = self.merging_working_dir / "merge_bams.sh"
+        self.merge_log_file = self.merging_working_dir / "merge.log"
+        self.merge_job_id_file = self.merging_working_dir / "merge_job_id.txt"
+        self.merge_lock_file = self.merging_working_dir / "merge.lock"
+        self.merge_done_file = self.merging_working_dir / "merge.done"
+        self.merge_pod5_manifest = self.merging_working_dir / "pod5_manifest.txt"
 
     def get_pod5_files(self) -> List[Path]:
-        return list(self.path.glob("*.pod5"))
+        # Get all pod5 files
+        pod5_files = self.path.glob("*.pod5")
+
+        # Return only files that have been inactive for min_time
+        return [pod5 for pod5 in pod5_files if is_file_inactive(pod5, MIN_TIME)]
 
     def get_lock_files(self) -> List[Path]:
         return list(self.basecalling_lock_files_dir.glob("*.lock"))
 
     def get_done_files(self) -> List[Path]:
         return list(self.basecalling_done_files_dir.glob("*.done"))
-
-    def get_pod5_files_for_basecalling(self):
-        pod5_files = self.get_pod5_files()
-
-        # Filter pod5 files for which there is a lock file or a done file
-        pod5_files = [pod5 for pod5 in pod5_files if f"{pod5.name}.lock" not in [y.name for y in self.get_lock_files()]]
-        pod5_files = [pod5 for pod5 in pod5_files if f"{pod5.name}.done" not in [y.name for y in self.get_done_files()]]
-
-        # Filter pod5 files for which the data is done transfering
-        thirty_minutes_in_sec = 30 * 60
-        pod5_files = [pod5 for pod5 in pod5_files if is_file_inactive(pod5, thirty_minutes_in_sec)]
-
-        return pod5_files
 
     def get_final_summary(self) -> Path | None:
         return next(self.path.parent.glob("final_summary*.txt"), None)
@@ -156,7 +160,7 @@ class Pod5Directory:
             sequencing_kit=sequencing_kit,
         )
 
-    def are_pod5_all_files_transfered(self) -> bool:
+    def all_pod5_files_transfered(self) -> bool:
         # Get final summary
         final_summary = self.get_final_summary()
 

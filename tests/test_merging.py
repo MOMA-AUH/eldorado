@@ -1,73 +1,142 @@
 import pytest
 
-from eldorado.merging import are_all_files_basecalled
+from eldorado.merging import all_existing_pod5_files_basecalled, all_existing_batches_are_done
+import eldorado.my_dataclasses as my_dataclasses
 from eldorado.my_dataclasses import Pod5Directory
 
 
 @pytest.mark.parametrize(
-    "pod5_dir, final_summary, final_summary_text, pod5_files, done_files, expected",
+    "pod5_dir, files, expected",
     [
         pytest.param(
             "sample/pod5",
-            "",
-            "",
             [],
-            [],
-            False,
-            id="empty",
-        ),
-        pytest.param(
-            "sample/pod5",
-            "sample/final_summary.txt",
-            "pod5_files_in_final_dest=1",
-            ["sample/pod5/file.pod5"],
-            ["sample/bam_eldorado/done_files/file.pod5.done"],
             True,
-            id="one_file",
+            id="Empty",
         ),
         pytest.param(
             "sample/pod5",
-            "sample/final_summary.txt",
-            "pod5_files_in_final_dest=2",
-            ["sample/pod5/file.pod5"],
-            ["sample/bam_eldorado/done_files/file.pod5.done"],
+            [
+                "sample/pod5/file.pod5",
+                "sample/bam_eldorado/basecalling/done_files/file.pod5.done",
+            ],
+            True,
+            id="Single file",
+        ),
+        pytest.param(
+            "sample/pod5",
+            [
+                "sample/pod5/file1.pod5",
+                "sample/pod5/file2.pod5",
+                "sample/bam_eldorado/basecalling/done_files/file1.pod5.done",
+                "sample/bam_eldorado/basecalling/done_files/file2.pod5.done",
+            ],
+            True,
+            id="Multiple files",
+        ),
+        pytest.param(
+            "sample/pod5",
+            [
+                "sample/pod5/file.pod5",
+                "sample/pod5/file2.pod5",
+                "sample/bam_eldorado/basecalling/done_files/file.pod5.done",
+            ],
             False,
-            id="too_few_files",
+            id="Missing done file",
+        ),
+        pytest.param(
+            "sample/pod5",
+            [
+                "sample/pod5/file.pod5",
+                "sample/bam_eldorado/basecalling/done_files/other_file.pod5.done",
+            ],
+            False,
+            id="Wrong done file",
         ),
     ],
 )
-def test_is_done_basecalling(
+def test_all_existing_pod5_files_basecalled(
     tmp_path,
+    monkeypatch,
     pod5_dir,
-    final_summary,
-    final_summary_text,
-    pod5_files,
-    done_files,
+    files,
     expected,
 ):
     # Arrange
-    root_dir = tmp_path / "root"
-    root_dir.mkdir()
+    # Mock is_file_inactive
+    def mock_is_file_inactive(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(my_dataclasses, "is_file_inactive", mock_is_file_inactive)
+
+    # Insert tmp directory in path
+    pod5_dir = tmp_path / pod5_dir
+    pod5_dir.mkdir(parents=True, exist_ok=True)
+    files = [tmp_path / file for file in files]
 
     # Create files
-    pod5_dir = root_dir / pod5_dir
-    pod5_dir.mkdir(parents=True, exist_ok=True)
-    if final_summary:
-        final_summary = root_dir / final_summary
-        final_summary.touch()
-        final_summary.write_text(final_summary_text, encoding="utf-8")
-    for pod5_file in pod5_files:
-        pod5_file = root_dir / pod5_file
-        pod5_file.parent.mkdir(parents=True, exist_ok=True)
-        pod5_file.touch()
-    for done_file in done_files:
-        done_file = root_dir / done_file
-        done_file.parent.mkdir(parents=True, exist_ok=True)
-        done_file.touch()
+    for file in files:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.touch()
 
     # Act
     pod5_dir = Pod5Directory(pod5_dir)
-    result = are_all_files_basecalled(pod5_dir=pod5_dir)
+    result = all_existing_pod5_files_basecalled(pod5_dir=pod5_dir)
+
+    # Assert
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "pod5_dir, files, expected",
+    [
+        pytest.param(
+            "",
+            [],
+            True,
+            id="Empty",
+        ),
+        pytest.param(
+            "sample/pod5",
+            [
+                "sample/bam_eldorado/basecalling/batches/1/batch.done",
+            ],
+            True,
+            id="Single batch done",
+        ),
+        pytest.param(
+            "sample/pod5",
+            [
+                "sample/bam_eldorado/basecalling/batches/1/batch.done",
+                "sample/bam_eldorado/basecalling/batches/2/batch.done",
+            ],
+            True,
+            id="Multiple batches done",
+        ),
+        pytest.param(
+            "sample/pod5",
+            [
+                "sample/bam_eldorado/basecalling/batches/1/batch.done",
+                "sample/bam_eldorado/basecalling/batches/2/other.file",
+            ],
+            False,
+            id="Multiple batches not all done",
+        ),
+    ],
+)
+def test_all_existing_batches_are_done(tmp_path, pod5_dir, files, expected):
+    # Arrange
+    # Insert root directory
+    pod5_dir = tmp_path / pod5_dir
+    files = [tmp_path / file for file in files]
+
+    # Create files
+    for file in files:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.touch()
+
+    # Act
+    result = all_existing_batches_are_done(Pod5Directory(pod5_dir))
 
     # Assert
     assert result == expected

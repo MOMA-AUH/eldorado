@@ -1,5 +1,7 @@
 from pathlib import Path
 
+MIN_TIME = 30 * 60  # 30 minutes
+
 DORADO_EXECUTABLE = "/faststorage/project/MomaReference/BACKUP/nanopore/software/dorado/dorado-0.6.0-linux-x64/bin/dorado"
 
 MODELS_DIR = Path("/faststorage/project/MomaReference/BACKUP/nanopore/models/dorado_models")

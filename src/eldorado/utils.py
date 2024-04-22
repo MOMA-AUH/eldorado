@@ -7,10 +7,13 @@ from typing import List
 from eldorado.my_dataclasses import Pod5Directory
 
 
-def find_pod5_dirs(root_dir: Path, pattern: str) -> List[Pod5Directory]:
+def find_pod5_dirs_for_processing(root_dir: Path, pattern: str) -> List[Pod5Directory]:
 
     # Get all pod5 directories that match the pattern
     pod5_dirs = get_pod5_dirs_from_pattern(root_dir, pattern)
+
+    # Keep only pod5 directories that are not already basecalled
+    pod5_dirs = [x for x in pod5_dirs if needs_basecalling(x)]
 
     # Keep only pod5 directories that has pod5 files
     pod5_dirs = [x for x in pod5_dirs if contains_pod5_files(x)]
@@ -20,7 +23,11 @@ def find_pod5_dirs(root_dir: Path, pattern: str) -> List[Pod5Directory]:
 
 
 def get_pod5_dirs_from_pattern(root_dir: Path, pattern: str) -> List[Path]:
-    return [x for x in root_dir.glob(pattern=pattern)]
+    return list(root_dir.glob(pattern=pattern))
+
+
+def needs_basecalling(pod5_dir: Path) -> bool:
+    return not any(pod5_dir.parent.glob("bam*/*.bam")) and not any(pod5_dir.parent.glob("fastq*/*.fastq*"))
 
 
 def contains_pod5_files(x: Path) -> bool:
