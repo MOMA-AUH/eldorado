@@ -3,11 +3,11 @@ import subprocess
 from typing import List
 
 from eldorado.logging_config import logger
-from eldorado.my_dataclasses import Pod5Directory
+from eldorado.pod5_handling import BasecallingRun
 from eldorado.utils import is_in_queue
 
 
-def cleanup_merge_lock_files(pod5_dir: Pod5Directory):
+def cleanup_merge_lock_files(pod5_dir: BasecallingRun):
     # Return if lock file does not exist
     if not pod5_dir.merge_lock_file.exists():
         return
@@ -21,13 +21,10 @@ def cleanup_merge_lock_files(pod5_dir: Pod5Directory):
     pod5_dir.merge_lock_file.unlink()
 
 
-def submit_merging_to_slurm(pod5_dir: Pod5Directory, dry_run: bool):
+def submit_merging_to_slurm(pod5_dir: BasecallingRun, dry_run: bool):
 
-    bam_batch_files = pod5_dir.bam_batches_dir.glob("*/*.bam")
+    bam_batch_files = pod5_dir.basecalling_batches_dir.glob("*/*.bam")
     bam_batch_files_str = " ".join([str(x) for x in bam_batch_files])
-
-    manifest_files = pod5_dir.bam_batches_dir.glob("*/pod5_manifest.txt")
-    manifest_files_str = " ".join([str(x) for x in manifest_files])
 
     # Construct SLURM job script
     cores = 4
@@ -45,10 +42,6 @@ def submit_merging_to_slurm(pod5_dir: Pod5Directory, dry_run: bool):
         
         # Trap lock file
         trap 'rm -f {pod5_dir.merge_lock_file}' EXIT
-        
-        # Log start time
-        START=$(date '+%Y-%m-%d %H:%M:%S')
-        START_S=$(date '+%s')
 
         # Create output directory
         OUTDIR=$(dirname {pod5_dir.merged_bam})
@@ -60,31 +53,11 @@ def submit_merging_to_slurm(pod5_dir: Pod5Directory, dry_run: bool):
         # Run merge
         samtools merge \\
             --threads {cores} \\
-            -f \\
             -o ${{TEMP_BAM_FILE}} \\
             {bam_batch_files_str}
 
         # Move temp file to output 
         mv ${{TEMP_BAM_FILE}} {pod5_dir.merged_bam}
-
-        # Log end time
-        END=$(date '+%Y-%m-%d %H:%M:%S')
-        END_S=$(date +%s)
-        RUNTIME=$((END_S-START_S))
-
-        # Get size of output
-        OUTPUT_BAM_SIZE=$(du -sL {pod5_dir.merged_bam} | cut -f1)
-        BAM_READ_COUNT=$(samtools view -c {pod5_dir.merged_bam})
-
-        # Write log file
-        LOG_FILE={pod5_dir.merge_log_file}
-        echo "output_bam={pod5_dir.merged_bam}" >> ${{LOG_FILE}}
-        echo "output_bam_size=$OUTPUT_BAM_SIZE" >> ${{LOG_FILE}}
-        echo "bam_read_count=$BAM_READ_COUNT" >> ${{LOG_FILE}}
-        echo "slurm_job_id=$SLURM_JOB_ID" >> ${{LOG_FILE}}
-        echo "start=$START" >> ${{LOG_FILE}}
-        echo "end=$END" >> ${{LOG_FILE}}
-        echo "runtime=$RUNTIME" >> ${{LOG_FILE}}
 
         # Create done file
         touch {pod5_dir.merge_done_file}
@@ -116,25 +89,23 @@ def submit_merging_to_slurm(pod5_dir: Pod5Directory, dry_run: bool):
         f.write(job_id.stdout.decode().strip())
 
 
-def get_pod5_dirs_for_merging(pod5_dirs: List[Pod5Directory]) -> List[Pod5Directory]:
+def needs_merging(run: BasecallingRun) -> bool:
 
-    return [
-        d
-        for d in pod5_dirs
-        if not d.merge_done_file.exists()
-        and not d.merge_lock_file.exists()
-        and all_existing_batches_are_done(d)
-        and d.all_pod5_files_transfered()
-        and all_existing_pod5_files_basecalled(d)
-    ]
+    return (
+        not run.merge_done_file.exists()
+        and not run.merge_lock_file.exists()
+        and all_existing_batches_are_done(run)
+        and run.all_pod5_files_transferred()
+        and all_existing_pod5_files_basecalled(run)
+    )
 
 
-def all_existing_batches_are_done(pod5_dir: Pod5Directory) -> bool:
-    batch_dirs = (d for d in pod5_dir.bam_batches_dir.glob("*") if d.is_dir())
+def all_existing_batches_are_done(pod5_dir: BasecallingRun) -> bool:
+    batch_dirs = (d for d in pod5_dir.basecalling_batches_dir.glob("*") if d.is_dir())
     batch_done_files = (d / "batch.done" for d in batch_dirs)
     return all(f.exists() for f in batch_done_files)
 
 
-def all_existing_pod5_files_basecalled(pod5_dir: Pod5Directory) -> bool:
+def all_existing_pod5_files_basecalled(pod5_dir: BasecallingRun) -> bool:
     done_files = [x.name for x in pod5_dir.get_done_files()]
     return all(f"{x.name}.done" in done_files for x in pod5_dir.get_pod5_files())

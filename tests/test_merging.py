@@ -1,10 +1,10 @@
 import pytest
 
 from eldorado.merging import all_existing_pod5_files_basecalled, all_existing_batches_are_done
-import eldorado.my_dataclasses as my_dataclasses
-from eldorado.my_dataclasses import Pod5Directory
+from eldorado.pod5_handling import BasecallingRun
 
 
+@pytest.mark.usefixtures("mock_pod5_internals")
 @pytest.mark.parametrize(
     "pod5_dir, files, expected",
     [
@@ -57,17 +57,12 @@ from eldorado.my_dataclasses import Pod5Directory
 )
 def test_all_existing_pod5_files_basecalled(
     tmp_path,
-    monkeypatch,
     pod5_dir,
     files,
     expected,
+    mock_pod5_internals,
 ):
     # Arrange
-    # Mock is_file_inactive
-    def mock_is_file_inactive(*args, **kwargs):
-        return True
-
-    monkeypatch.setattr(my_dataclasses, "is_file_inactive", mock_is_file_inactive)
 
     # Insert tmp directory in path
     pod5_dir = tmp_path / pod5_dir
@@ -80,7 +75,7 @@ def test_all_existing_pod5_files_basecalled(
         file.touch()
 
     # Act
-    pod5_dir = Pod5Directory(pod5_dir)
+    pod5_dir = BasecallingRun(pod5_dir)
     result = all_existing_pod5_files_basecalled(pod5_dir=pod5_dir)
 
     # Assert
@@ -124,7 +119,13 @@ def test_all_existing_pod5_files_basecalled(
         ),
     ],
 )
-def test_all_existing_batches_are_done(tmp_path, pod5_dir, files, expected):
+def test_all_existing_batches_are_done(
+    tmp_path,
+    pod5_dir,
+    files,
+    expected,
+    mock_pod5_internals,
+):
     # Arrange
     # Insert root directory
     pod5_dir = tmp_path / pod5_dir
@@ -136,7 +137,7 @@ def test_all_existing_batches_are_done(tmp_path, pod5_dir, files, expected):
         file.touch()
 
     # Act
-    result = all_existing_batches_are_done(Pod5Directory(pod5_dir))
+    result = all_existing_batches_are_done(BasecallingRun(pod5_dir))
 
     # Assert
     assert result == expected
