@@ -2,7 +2,36 @@ import pytest
 
 from eldorado.basecalling import cleanup_basecalling_lock_files, batch_should_be_skipped, BasecallingBatch
 import eldorado.basecalling as basecalling
-from eldorado.pod5_handling import BasecallingRun
+from eldorado.pod5_handling import SequencingRun
+from tests.test_utils import create_files
+
+
+@pytest.mark.usefixtures("mock_pod5_internals")
+@pytest.mark.parametrize(
+    "pod5_files_count",
+    [
+        pytest.param(0, id="Edge case with no pod5 files"),
+        pytest.param(1, id="Happy path with 1 pod5 files"),
+        pytest.param(3, id="Happy path with 3 pod5 files"),
+    ],
+)
+def test_setup(pod5_files_count, tmp_path):
+
+    # Arrange
+    pod5_dir = tmp_path / "pod5"
+    pod5_files = [pod5_dir / f"file{i}.pod5" for i in range(pod5_files_count)]
+    create_files(pod5_files)
+
+    run = SequencingRun(pod5_dir)
+    batch = BasecallingBatch(run=run)
+
+    # Act
+    batch.setup()
+
+    # Assert
+    assert batch.working_dir.exists()
+    assert all(lock_file.parent.exists() for lock_file in batch.pod5_lock_files)
+    assert batch.pod5_manifest.read_text(encoding="utf-8") == "\n".join(str(file) for file in pod5_files) + "\n"
 
 
 @pytest.mark.usefixtures("mock_pod5_internals")
@@ -101,7 +130,7 @@ def test_batch_should_be_skipped(tmp_path, pod5_dir, existing_files, min_batch_s
         file.touch()
 
     # Act
-    run = BasecallingRun(pod5_dir)
+    run = SequencingRun(pod5_dir)
     batch = BasecallingBatch(run)
     result = batch_should_be_skipped(
         basecalling_batch=batch,
@@ -110,106 +139,6 @@ def test_batch_should_be_skipped(tmp_path, pod5_dir, existing_files, min_batch_s
 
     # Assert
     assert result == excepted
-
-
-@pytest.mark.usefixtures("mock_pod5_internals")
-@pytest.mark.parametrize(
-    "pod5_dir, existing_files, expected_generated_files",
-    [
-        pytest.param(
-            "pod5",
-            [],
-            [],
-            id="Empty",
-        ),
-        pytest.param(
-            "pod5",
-            [
-                "pod5/file.pod5",
-            ],
-            [
-                "bam_eldorado/basecalling/batches/1234/pod5_manifest.txt",
-                "bam_eldorado/basecalling/lock_files/file.pod5.lock",
-            ],
-            id="Single pod5 file needs to be basecalled",
-        ),
-        pytest.param(
-            "pod5",
-            [
-                "pod5/file_1.pod5",
-                "pod5/file_2.pod5",
-            ],
-            [
-                "bam_eldorado/basecalling/batches/1234/pod5_manifest.txt",
-                "bam_eldorado/basecalling/lock_files/file_1.pod5.lock",
-                "bam_eldorado/basecalling/lock_files/file_2.pod5.lock",
-            ],
-            id="Two pod5 files need to be basecalled",
-        ),
-        pytest.param(
-            "pod5",
-            [
-                "pod5/file.pod5",
-                "bam_eldorado/basecalling/lock_files/file.pod5.lock",
-            ],
-            [],
-            id="Skip pod5 file with lock file",
-        ),
-        pytest.param(
-            "pod5",
-            [
-                "pod5/file.pod5",
-                "bam_eldorado/basecalling/done_files/file.pod5.done",
-            ],
-            [],
-            id="Skip pod5 file with done file",
-        ),
-        pytest.param(
-            "pod5",
-            [
-                "pod5/file.pod5",
-                "pod5/new_file.pod5",
-                "bam_eldorado/basecalling/lock_files/file.pod5.lock",
-            ],
-            [
-                "bam_eldorado/basecalling/batches/1234/pod5_manifest.txt",
-                "bam_eldorado/basecalling/lock_files/new_file.pod5.lock",
-            ],
-            id="One pod5 done and one new pod5 file for basecalling",
-        ),
-    ],
-)
-def test_basecalling_batch_write_files(monkeypatch, tmp_path, pod5_dir, existing_files, expected_generated_files):
-    # Mock time
-    monkeypatch.setattr(basecalling.time, "time", lambda: "1234")
-
-    # Mock submit to slurm
-    def mock_submit_basecalling_batch_to_slurm(*args, **kwargs):
-        return "JOBID"
-
-    monkeypatch.setattr(basecalling, "submit_basecalling_batch_to_slurm", mock_submit_basecalling_batch_to_slurm)
-
-    # Arrange
-    # Insert root dir
-    pod5_dir = tmp_path / pod5_dir
-    existing_files = [tmp_path / file for file in existing_files]
-    expected_generated_files = [tmp_path / file for file in expected_generated_files]
-
-    # Create existing files
-    for file in existing_files:
-        file.parent.mkdir(parents=True, exist_ok=True)
-        file.touch()
-
-    # Act
-    run = BasecallingRun(pod5_dir)
-    batch = BasecallingBatch(run)
-    batch.write_files()
-
-    # Assert
-    all_files = {x for x in tmp_path.rglob("*") if x.is_file()}
-    new_files = all_files - set(existing_files)
-
-    assert new_files == set(expected_generated_files)
 
 
 @pytest.mark.usefixtures("mock_pod5_internals")
@@ -304,7 +233,7 @@ def test_cleanup_stalled_batch_basecalling_dirs_and_lock_files(
 
     # Act
     cleanup_basecalling_lock_files(
-        pod5_dir=BasecallingRun(pod5_dir),
+        pod5_dir=SequencingRun(pod5_dir),
     )
 
     # Assert

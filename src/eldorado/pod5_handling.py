@@ -10,7 +10,7 @@ from eldorado.configuration import Metadata, get_metadata, Config
 
 
 @dataclass
-class BasecallingRun:
+class SequencingRun:
     # Input attributes
     pod5_dir: Path
 
@@ -78,19 +78,19 @@ class BasecallingRun:
         # Merging
         self.merging_working_dir = self.output_dir / "merging"
         self.merged_bam = self.merging_working_dir / "merged.bam"
-        self.merge_script_file = self.merging_working_dir / "merge_bams.sh"
-        self.merge_job_id_file = self.merging_working_dir / "merge_job_id.txt"
+        self.merge_script_file = self.merging_working_dir / "run_merging.sh"
+        self.merge_job_id_file = self.merging_working_dir / "slurm_id.txt"
         self.merge_lock_file = self.merging_working_dir / "merge.lock"
         self.merge_done_file = self.merging_working_dir / "merge.done"
 
         # Demultiplexing
         self.demux_working_dir = self.output_dir / "demultiplexing"
-        self.demux_script_file = self.demux_working_dir / "demux.sh"
-        self.demux_job_id_file = self.demux_working_dir / "demux_job_id.txt"
+        self.demux_script_file = self.demux_working_dir / "run_demux.sh"
+        self.demux_job_id_file = self.demux_working_dir / "slurm_id.txt"
         self.demux_lock_file = self.demux_working_dir / "demux.lock"
         self.demux_done_file = self.demux_working_dir / "demux.done"
 
-    def get_pod5_files(self) -> Generator[Path, None, None]:
+    def get_transferred_pod5_files(self) -> Generator[Path, None, None]:
         # Get all pod5 files
         pod5_files = self.pod5_dir.glob("*.pod5")
 
@@ -132,11 +132,19 @@ class BasecallingRun:
         n_pod5_files_expected = int(matches[1])
 
         # Count the number of pod5 files
-        pod5_files = self.get_pod5_files()
+        pod5_files = self.get_transferred_pod5_files()
         n_pod5_files_count = len(list(pod5_files))
 
         # If number of pod5 files is euqal to expected number of pod5 files basecalling is done
         return n_pod5_files_expected == n_pod5_files_count
+
+    def get_unbasecalled_pod5_files(self):
+        pod5_files = self.get_transferred_pod5_files()
+
+        lock_files_names = [lock_file.name for lock_file in self.get_lock_files()]
+        done_files_names = [done_file.name for done_file in self.get_done_files()]
+
+        return [pod5 for pod5 in pod5_files if f"{pod5.name}.lock" not in lock_files_names and f"{pod5.name}.done" not in done_files_names]
 
 
 def is_file_inactive(file: Path, min_time: int) -> bool:
@@ -144,7 +152,7 @@ def is_file_inactive(file: Path, min_time: int) -> bool:
     return time_since_data_last_modified > min_time
 
 
-def find_sequencning_runs_for_processing(root_dir: Path, pattern: str) -> List[BasecallingRun]:
+def find_sequencning_runs_for_processing(root_dir: Path, pattern: str) -> List[SequencingRun]:
 
     # Get all pod5 directories that match the pattern
     pod5_dirs = get_pod5_dirs_from_pattern(root_dir, pattern)
@@ -156,7 +164,7 @@ def find_sequencning_runs_for_processing(root_dir: Path, pattern: str) -> List[B
     pod5_dirs = [x for x in pod5_dirs if contains_pod5_files(x)]
 
     # Return as Pod5Directory objects
-    return [BasecallingRun(p) for p in pod5_dirs]
+    return [SequencingRun(p) for p in pod5_dirs]
 
 
 def get_pod5_dirs_from_pattern(root_dir: Path, pattern: str) -> List[Path]:

@@ -4,8 +4,8 @@ from pathlib import Path
 
 from typing import List
 
-from eldorado.demultiplexing import needs_demultiplexing
-from eldorado.pod5_handling import BasecallingRun
+from eldorado.demultiplexing import demultiplexing_is_pending
+from eldorado.pod5_handling import SequencingRun
 
 
 @pytest.mark.usefixtures("mock_pod5_internals")
@@ -90,7 +90,7 @@ def test_needs_demultiplexing(tmp_path: Path, pod5_dir: Path, existing_files: Li
         f.touch()
 
     # Act
-    result = needs_demultiplexing(BasecallingRun(pod5_dir))
+    result = demultiplexing_is_pending(SequencingRun(pod5_dir))
 
     # Assert
     assert result == expected

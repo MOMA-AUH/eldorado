@@ -4,7 +4,27 @@ from pathlib import Path
 
 import pytest
 
-from eldorado.configuration import is_version_newer, get_latest_version, get_modified_bases_models, Config
+import eldorado.configuration as configuration
+from eldorado.configuration import (
+    is_version_newer,
+    get_latest_version,
+    get_modification_models,
+    Config,
+    ProjectConfig,
+    unpack_config_row,
+    is_basecalling_model_path_valid,
+    is_dorado_executable_valid,
+    is_row_inputs_valid,
+    get_project_configs,
+)
+from eldorado.constants import PROJECT_ID, DORADO_EXECUTABLE, BASECALLING_MODEL, MOD_5MCG_5HMCG, MOD_6MA
+
+
+# Helper functions
+def create_files(files):
+    for file in files:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.touch()
 
 
 def test_config_save_and_load(tmp_path):
@@ -90,10 +110,7 @@ def test_get_latest_version(tmp_path, models, expected):
     # Add root dir to files
     models = [root_dir / x for x in models]
 
-    # Create model files
-    for file in models:
-        file.parent.mkdir(parents=True, exist_ok=True)
-        file.touch()
+    create_files(models)
 
     # Act
     result = get_latest_version(models)
@@ -103,12 +120,13 @@ def test_get_latest_version(tmp_path, models, expected):
 
 
 @pytest.mark.parametrize(
-    "files_in_model_dir, model, mods, expected",
+    "files_in_model_dir, model, mod_5mcg_5hmcg,mod_6ma, expected",
     [
         pytest.param(
             [],
             "",
-            [],
+            False,
+            False,
             [],
             id="empty",
         ),
@@ -117,19 +135,22 @@ def test_get_latest_version(tmp_path, models, expected):
                 "dna_r10.4.1_e8.2_400bps_hac@v4.3.0",
             ],
             "dna_r10.4.1_e8.2_400bps_hac@v4.3.0",
-            [],
+            False,
+            False,
             [],
             id="no_mods",
         ),
         pytest.param(
             [
                 "dna_r10.4.1_e8.2_400bps_hac@v4.3.0",
+                "dna_r10.4.1_e8.2_400bps_hac@v4.3.0_5mCG_5hmCG@v1",
                 "dna_r10.4.1_e8.2_400bps_hac@v4.3.0_6mA@v2",
             ],
             "dna_r10.4.1_e8.2_400bps_hac@v4.3.0",
-            ["6mA"],
+            False,
+            True,
             ["dna_r10.4.1_e8.2_400bps_hac@v4.3.0_6mA@v2"],
-            id="single_model",
+            id="6mA only",
         ),
         pytest.param(
             [
@@ -138,34 +159,346 @@ def test_get_latest_version(tmp_path, models, expected):
                 "dna_r10.4.1_e8.2_400bps_hac@v4.3.0_6mA@v2",
             ],
             "dna_r10.4.1_e8.2_400bps_hac@v4.3.0",
-            ["5mCG_5hmCG", "6mA"],
+            True,
+            False,
+            [
+                "dna_r10.4.1_e8.2_400bps_hac@v4.3.0_5mCG_5hmCG@v1",
+            ],
+            id="5mc_5hmCG only",
+        ),
+        pytest.param(
+            [
+                "dna_r10.4.1_e8.2_400bps_hac@v4.3.0",
+                "dna_r10.4.1_e8.2_400bps_hac@v4.3.0_5mCG_5hmCG@v1",
+                "dna_r10.4.1_e8.2_400bps_hac@v4.3.0_6mA@v2",
+            ],
+            "dna_r10.4.1_e8.2_400bps_hac@v4.3.0",
+            True,
+            True,
             [
                 "dna_r10.4.1_e8.2_400bps_hac@v4.3.0_5mCG_5hmCG@v1",
                 "dna_r10.4.1_e8.2_400bps_hac@v4.3.0_6mA@v2",
             ],
-            id="multiple_models",
+            id="Both mods",
         ),
     ],
 )
-def test_get_modified_bases_models(tmp_path, files_in_model_dir: List[str], model: str, mods: List[str], expected: List[str]):
+def test_get_modification_models(
+    tmp_path,
+    files_in_model_dir: List[str],
+    model: str,
+    mod_5mcg_5hmcg: bool,
+    mod_6ma: bool,
+    expected: List[str],
+):
     # Arrange
-    model_dir_path = tmp_path / "models"
-    model_dir_path.mkdir()
-
-    # Add root dir to files
-    models = [model_dir_path / x for x in files_in_model_dir]
-    expected = [model_dir_path / x for x in expected]
+    model_path = tmp_path / model
+    models = [tmp_path / x for x in files_in_model_dir]
+    expected = [tmp_path / x for x in expected]
 
     # Create model files
-    for file in models:
-        file.touch()
+    create_files(models)
 
     # Act
-    result = get_modified_bases_models(
-        basecalling_model=model,
-        modifications=mods,
-        models_dir=model_dir_path,
+    result = get_modification_models(
+        basecalling_model=model_path,
+        mod_5mcg_5hmcg=mod_5mcg_5hmcg,
+        mod_6ma=mod_6ma,
     )
+
+    # Assert
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "project_id, dorado_executable, basecalling_model, mod_5mcg_5hmcg, mod_6ma",
+    [
+        pytest.param(
+            "N999",
+            "",
+            "",
+            "",
+            "",
+            id="Empty",
+        ),
+        pytest.param(
+            "N123",
+            "path/to/dorado",
+            "v1.0.0",
+            "1",
+            "1",
+            id="Filled out",
+        ),
+    ],
+)
+def test_unpack_project_config(
+    project_id: str,
+    dorado_executable: str,
+    basecalling_model: str,
+    mod_5mcg_5hmcg: str,
+    mod_6ma: str,
+):
+    # Arrange
+    row = {
+        PROJECT_ID: project_id,
+        DORADO_EXECUTABLE: dorado_executable,
+        BASECALLING_MODEL: basecalling_model,
+        MOD_5MCG_5HMCG: mod_5mcg_5hmcg,
+        MOD_6MA: mod_6ma,
+    }
+
+    # Act
+    project_id_res, dorado_executable_res, basecalling_model_res, mod_5mcg_5hmcg_res, mod_6ma_res = unpack_config_row(row)
+
+    # Assert
+    assert project_id_res == project_id
+    assert dorado_executable_res == dorado_executable
+    assert basecalling_model_res == basecalling_model
+    assert mod_5mcg_5hmcg_res == mod_5mcg_5hmcg
+    assert mod_6ma_res == mod_6ma
+
+
+@pytest.mark.parametrize(
+    "csv_body, expected",
+    [
+        pytest.param(
+            "",
+            [],
+            id="Empty",
+        ),
+        pytest.param(
+            """\
+                project_id,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
+            """,
+            [],
+            id="Header only",
+        ),
+        pytest.param(
+            """\
+                project_id ,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
+                default,path/to/dorado,path/to/model,1,1
+            """,
+            [],
+            id="Default only",
+        ),
+        pytest.param(
+            """\
+                project_id ,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
+                default,path/to/dorado,path/to/model,1,1
+                project1,path/to/dorado,path/to/model,1,1
+            """,
+            [
+                ProjectConfig(
+                    "project1",
+                    Path("path/to/dorado"),
+                    Path("path/to/model"),
+                    True,
+                    True,
+                )
+            ],
+            id="One valid project - All filled out",
+        ),
+        pytest.param(
+            """\
+                project_id ,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
+                default,path/to/dorado,path/to/model,1,1
+                project1,,,,
+            """,
+            [
+                ProjectConfig(
+                    "project1",
+                    Path("path/to/dorado"),
+                    Path("path/to/model"),
+                    True,
+                    True,
+                )
+            ],
+            id="One valid project - Filled out from default",
+        ),
+        pytest.param(
+            """\
+                project_id ,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
+                default,path/to/dorado,auto,1,1
+                project1,,,,
+            """,
+            [
+                ProjectConfig(
+                    "project1",
+                    Path("path/to/dorado"),
+                    None,
+                    True,
+                    True,
+                )
+            ],
+            id="One valid project - Default: Use auto",
+        ),
+        pytest.param(
+            """\
+                project_id ,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
+                default,path/to/dorado,path/to/model,1,1
+                project1,,auto,,
+            """,
+            [
+                ProjectConfig(
+                    "project1",
+                    Path("path/to/dorado"),
+                    None,
+                    True,
+                    True,
+                )
+            ],
+            id="One valid project - Default: Use newest model",
+        ),
+    ],
+)
+def test_project_config_is_invalid(monkeypatch, tmp_path: Path, csv_body: str, expected: bool):
+    # Arrange
+    csv_file = tmp_path / "config.csv"
+    csv_file.write_text(csv_body)
+
+    # Mock check for dorado executable and basecalling model
+    monkeypatch.setattr(configuration, "is_basecalling_model_path_valid", lambda x: True)
+    monkeypatch.setattr(configuration, "is_dorado_executable_valid", lambda x: True)
+
+    # Act
+    result = get_project_configs(csv_file)
+
+    # Assert
+    assert result == expected
+
+
+class TestIsBasecallingModelPathValid:
+    def test_valid_path(self, tmp_path):
+        # Arrange
+        model_path = tmp_path / "model"
+        model_path.mkdir()
+
+        # Act
+        result = is_basecalling_model_path_valid(model_path)
+
+        # Assert
+        assert result is True
+
+    def test_path_is_file(self, tmp_path):
+        # Arrange
+        model_path = tmp_path / "model"
+        model_path.touch()
+
+        # Act
+        result = is_basecalling_model_path_valid(model_path)
+
+        # Assert
+        assert result is False
+
+    def test_path_does_not_exist(self, tmp_path):
+        # Arrange
+        model_path = tmp_path / "model"
+
+        # Act
+        result = is_basecalling_model_path_valid(model_path)
+
+        # Assert
+        assert result is False
+
+
+class TestIsDoradoExecutableValid:
+    @pytest.mark.parametrize(
+        "dorado_executable_name, expected",
+        [
+            pytest.param("dorado", True, id="Valid name"),
+            pytest.param("dorado.exe", False, id="Wrong name"),
+        ],
+    )
+    def test_name(self, tmp_path, dorado_executable_name, expected):
+        # Arrange
+        model_path = tmp_path / dorado_executable_name
+        model_path.touch()
+
+        # Act
+        result = is_dorado_executable_valid(model_path)
+
+        # Assert
+        assert result is expected
+
+    def test_path_is_dir(self, tmp_path):
+        # Arrange
+        model_path = tmp_path / "dorado"
+        model_path.mkdir()
+
+        # Act
+        result = is_dorado_executable_valid(model_path)
+
+        # Assert
+        assert result is False
+
+    def test_path_does_not_exist(self, tmp_path):
+        # Arrange
+        model_path = tmp_path / "dorado"
+
+        # Act
+        result = is_dorado_executable_valid(model_path)
+
+        # Assert
+        assert result is False
+
+
+@pytest.fixture
+def project_defaults():
+    return ProjectConfig(
+        project_id="default_project",
+        dorado_executable=Path("/default/path/to/dorado"),
+        basecalling_model=Path("/default/path/to/model"),
+        mod_5mcg_5hmcg=True,
+        mod_6ma=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "row, expected",
+    [
+        pytest.param(
+            {
+                "project_id": "1",
+                "dorado_executable": "",
+                "basecalling_model": "",
+                "mod_5mcg_5hmcg": "",
+                "mod_6ma": "",
+            },
+            True,
+            id="Empty values",
+        ),
+        pytest.param(
+            {
+                "project_id": "2",
+                "dorado_executable": "/path/to/dorado",
+                "basecalling_model": "/path/to/model",
+                "mod_5mcg_5hmcg": "1",
+                "mod_6ma": "0",
+            },
+            True,
+            id="Simple case",
+        ),
+        pytest.param(
+            {
+                "project_id": "3",
+                "dorado_executable": "",
+                "basecalling_model": "",
+                "mod_5mcg_5hmcg": "not_bool",
+                "mod_6ma": "",
+            },
+            False,
+            id="Invalid bool values - String",
+        ),
+    ],
+)
+def test_is_row_inputs_valid(monkeypatch, row, expected):
+    # Arrange
+    # Mock check for dorado executable and basecalling model
+    monkeypatch.setattr(configuration, "is_basecalling_model_path_valid", lambda x: True)
+    monkeypatch.setattr(configuration, "is_dorado_executable_valid", lambda x: True)
+
+    # Act
+    result = is_row_inputs_valid(row)
 
     # Assert
     assert result == expected

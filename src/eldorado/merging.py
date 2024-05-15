@@ -1,13 +1,11 @@
 import subprocess
 
-from typing import List
-
 from eldorado.logging_config import logger
-from eldorado.pod5_handling import BasecallingRun
+from eldorado.pod5_handling import SequencingRun
 from eldorado.utils import is_in_queue
 
 
-def cleanup_merge_lock_files(pod5_dir: BasecallingRun):
+def cleanup_merge_lock_files(pod5_dir: SequencingRun):
     # Return if lock file does not exist
     if not pod5_dir.merge_lock_file.exists():
         return
@@ -21,9 +19,13 @@ def cleanup_merge_lock_files(pod5_dir: BasecallingRun):
     pod5_dir.merge_lock_file.unlink()
 
 
-def submit_merging_to_slurm(pod5_dir: BasecallingRun, dry_run: bool):
+def submit_merging_to_slurm(
+    run: SequencingRun,
+    mail_user: str,
+    dry_run: bool,
+):
 
-    bam_batch_files = pod5_dir.basecalling_batches_dir.glob("*/*.bam")
+    bam_batch_files = run.basecalling_batches_dir.glob("*/*.bam")
     bam_batch_files_str = " ".join([str(x) for x in bam_batch_files])
 
     # Construct SLURM job script
@@ -35,16 +37,17 @@ def submit_merging_to_slurm(pod5_dir: BasecallingRun, dry_run: bool):
 #SBATCH --cpus-per-task     {cores}
 #SBATCH --mem               32g
 #SBATCH --mail-type         FAIL
-#SBATCH --mail-user         simon.drue@clin.au.dk
-#SBATCH --output            {pod5_dir.merge_script_file}.%j.out
+#SBATCH --mail-user         {mail_user}
+#SBATCH --output            {run.merge_script_file}.%j.out
+#SBATCH --name              eldorado-merge
 
         set -eu
         
         # Trap lock file
-        trap 'rm -f {pod5_dir.merge_lock_file}' EXIT
+        trap 'rm -f {run.merge_lock_file}' EXIT
 
         # Create output directory
-        OUTDIR=$(dirname {pod5_dir.merged_bam})
+        OUTDIR=$(dirname {run.merged_bam})
         mkdir -p $OUTDIR
 
         # Create temp bam on scratch
@@ -57,17 +60,17 @@ def submit_merging_to_slurm(pod5_dir: BasecallingRun, dry_run: bool):
             {bam_batch_files_str}
 
         # Move temp file to output 
-        mv ${{TEMP_BAM_FILE}} {pod5_dir.merged_bam}
+        mv ${{TEMP_BAM_FILE}} {run.merged_bam}
 
         # Create done file
-        touch {pod5_dir.merge_done_file}
+        touch {run.merge_done_file}
 
     """
 
     # Write Slurm script to a file
-    pod5_dir.merge_script_file.parent.mkdir(exist_ok=True, parents=True)
-    with open(pod5_dir.merge_script_file, "w", encoding="utf-8") as f:
-        logger.info("Writing Slurm script to %s", str(pod5_dir.merge_script_file))
+    run.merge_script_file.parent.mkdir(exist_ok=True, parents=True)
+    with open(run.merge_script_file, "w", encoding="utf-8") as f:
+        logger.info("Writing Slurm script to %s", str(run.merge_script_file))
         f.write(slurm_script)
 
     if dry_run:
@@ -76,20 +79,20 @@ def submit_merging_to_slurm(pod5_dir: BasecallingRun, dry_run: bool):
 
     # Submit the job using Slurm
     job_id = subprocess.run(
-        ["sbatch", "--parsable", str(pod5_dir.merge_script_file)],
+        ["sbatch", "--parsable", str(run.merge_script_file)],
         capture_output=True,
         check=True,
     )
 
     # Create .lock files
-    pod5_dir.merge_lock_file.parent.mkdir(exist_ok=True, parents=True)
-    pod5_dir.merge_lock_file.touch()
+    run.merge_lock_file.parent.mkdir(exist_ok=True, parents=True)
+    run.merge_lock_file.touch()
 
-    with open(pod5_dir.merge_job_id_file, "w", encoding="utf-8") as f:
+    with open(run.merge_job_id_file, "w", encoding="utf-8") as f:
         f.write(job_id.stdout.decode().strip())
 
 
-def needs_merging(run: BasecallingRun) -> bool:
+def merging_is_pending(run: SequencingRun) -> bool:
 
     return (
         not run.merge_done_file.exists()
@@ -100,12 +103,12 @@ def needs_merging(run: BasecallingRun) -> bool:
     )
 
 
-def all_existing_batches_are_done(pod5_dir: BasecallingRun) -> bool:
+def all_existing_batches_are_done(pod5_dir: SequencingRun) -> bool:
     batch_dirs = (d for d in pod5_dir.basecalling_batches_dir.glob("*") if d.is_dir())
     batch_done_files = (d / "batch.done" for d in batch_dirs)
     return all(f.exists() for f in batch_done_files)
 
 
-def all_existing_pod5_files_basecalled(pod5_dir: BasecallingRun) -> bool:
+def all_existing_pod5_files_basecalled(pod5_dir: SequencingRun) -> bool:
     done_files = [x.name for x in pod5_dir.get_done_files()]
-    return all(f"{x.name}.done" in done_files for x in pod5_dir.get_pod5_files())
+    return all(f"{x.name}.done" in done_files for x in pod5_dir.get_transferred_pod5_files())

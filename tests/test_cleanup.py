@@ -5,7 +5,7 @@ from typing import List
 from pathlib import Path
 
 from eldorado.cleanup import needs_cleanup, load_logs_as_dicts, generate_final_log_csv
-from eldorado.basecalling import BasecallingRun
+from eldorado.basecalling import SequencingRun
 
 
 @pytest.mark.parametrize(
@@ -64,7 +64,7 @@ def test_needs_cleanup(tmp_path: Path, pod5_dir: Path, files: List[Path], expect
         file.touch()
 
     # Act
-    run = BasecallingRun(pod5_dir)
+    run = SequencingRun(pod5_dir)
     result = needs_cleanup(run)
 
     # Assert

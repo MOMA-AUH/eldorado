@@ -7,13 +7,13 @@ import time
 from dataclasses import dataclass, field
 
 from eldorado.logging_config import logger
-from eldorado.pod5_handling import BasecallingRun
+from eldorado.pod5_handling import SequencingRun
 from eldorado.utils import is_in_queue
 
 
 @dataclass
 class BasecallingBatch:
-    pod5_dir: BasecallingRun
+    run: SequencingRun
 
     # Derived attributes
     batch_id: str = field(init=False)
@@ -37,10 +37,10 @@ class BasecallingBatch:
         self.batch_id = str(int(time.time()))
 
         # Get unbasecalled pod5 files
-        self.pod5_files = get_unbasecalled_pod5_files(self.pod5_dir)
+        self.pod5_files = self.run.get_unbasecalled_pod5_files()
 
         # Working dir
-        self.working_dir = self.pod5_dir.basecalling_batches_dir / self.batch_id
+        self.working_dir = self.run.basecalling_batches_dir / self.batch_id
 
         # Output files
         self.output_bam = self.working_dir / "basecalled.bam"
@@ -51,18 +51,22 @@ class BasecallingBatch:
         self.done_file = self.working_dir / "batch.done"
 
         # Pod5 lock files
-        self.pod5_lock_files = [self.pod5_dir.basecalling_lock_files_dir / f"{pod5_file.name}.lock" for pod5_file in self.pod5_files]
+        self.pod5_lock_files = [self.run.basecalling_lock_files_dir / f"{pod5_file.name}.lock" for pod5_file in self.pod5_files]
+        for lock_file in self.pod5_lock_files:
+            lock_file.parent.mkdir(exist_ok=True, parents=True)
+            lock_file.touch()
 
         # Pod5 done files
-        self.pod5_done_files = [self.pod5_dir.basecalling_done_files_dir / f"{pod5_file.name}.done" for pod5_file in self.pod5_files]
+        self.pod5_done_files = [self.run.basecalling_done_files_dir / f"{pod5_file.name}.done" for pod5_file in self.pod5_files]
 
-    def write_files(self):
+    def setup(self):
+
         # Create working directory
         self.working_dir.mkdir(exist_ok=True, parents=True)
 
         # Write pod5 manifest
-        for pod5_file in self.pod5_files:
-            self.pod5_manifest.write_text(f"{pod5_file}\n", "utf-8")
+        pod5_files_str = "\n".join([str(x) for x in self.pod5_files]) + "\n"
+        self.pod5_manifest.write_text(pod5_files_str, encoding="utf-8")
 
         # Create .lock files
         for lock_file in self.pod5_lock_files:
@@ -70,17 +74,7 @@ class BasecallingBatch:
             lock_file.touch()
 
 
-def get_unbasecalled_pod5_files(pod5_dir: BasecallingRun):
-    pod5_files = pod5_dir.get_pod5_files()
-
-    # Filter pod5 files for which there is a lock file or a done file
-    pod5_files = [pod5 for pod5 in pod5_files if f"{pod5.name}.lock" not in [y.name for y in pod5_dir.get_lock_files()]]
-    pod5_files = [pod5 for pod5 in pod5_files if f"{pod5.name}.done" not in [y.name for y in pod5_dir.get_done_files()]]
-
-    return pod5_files
-
-
-def cleanup_basecalling_lock_files(pod5_dir: BasecallingRun):
+def cleanup_basecalling_lock_files(pod5_dir: SequencingRun):
     # Loop through all batch directories and collect inactive and active pod5 files
     queued_pod5_files: set[Path] = set()
     for batch_dir in pod5_dir.basecalling_batches_dir.glob("*"):
@@ -136,8 +130,9 @@ def is_completed(job_id):
 
 
 def process_unbasecalled_pod5_files(
-    run: BasecallingRun,
+    run: SequencingRun,
     min_batch_size: int,
+    mail_user: str,
     dry_run: bool,
 ):
 
@@ -151,14 +146,14 @@ def process_unbasecalled_pod5_files(
         )
         return
 
+    logger.info("Setting up basecalling batch (id: %s, %d pod5 files)", batch.batch_id, len(batch.pod5_files))
+    batch.setup()
+
     submit_basecalling_batch_to_slurm(
         batch=batch,
-        run=run,
+        mail_user=mail_user,
         dry_run=dry_run,
     )
-
-    # Write files
-    batch.write_files()
 
 
 def batch_should_be_skipped(basecalling_batch: BasecallingBatch, min_batch_size: int) -> bool:
@@ -167,27 +162,23 @@ def batch_should_be_skipped(basecalling_batch: BasecallingBatch, min_batch_size:
         return False
 
     # Check if unbasecalled pod5 files are the only ones left
-    if basecalling_batch.pod5_files and basecalling_batch.pod5_dir.all_pod5_files_transferred():
+    if basecalling_batch.pod5_files and basecalling_batch.run.all_pod5_files_transferred():
         return False
 
     return True
 
 
-def needs_basecalling(run: BasecallingRun) -> bool:
-
-    has_dorado_config = run.dorado_config_file.exists()
-    has_unbasecalled_files = has_unbasecalled_pod5_files(run)
-
-    return has_dorado_config and has_unbasecalled_files
+def basecalling_is_pending(run: SequencingRun) -> bool:
+    return run.dorado_config_file.exists() and has_unbasecalled_pod5_files(run)
 
 
-def has_unbasecalled_pod5_files(pod5_dir: BasecallingRun) -> bool:
+def has_unbasecalled_pod5_files(pod5_dir: SequencingRun) -> bool:
     # Number of lock and done files
     lock_files = len(list(pod5_dir.get_lock_files()))
     done_files = len(list(pod5_dir.get_done_files()))
 
     # Number of pod5 files
-    pod5_files = len(list(pod5_dir.get_pod5_files()))
+    pod5_files = len(list(pod5_dir.get_transferred_pod5_files()))
 
     # If number of lock/done files is less than number of pod5 files, return True
     return lock_files + done_files < pod5_files
@@ -195,14 +186,14 @@ def has_unbasecalled_pod5_files(pod5_dir: BasecallingRun) -> bool:
 
 def submit_basecalling_batch_to_slurm(
     batch: BasecallingBatch,
-    run: BasecallingRun,
+    mail_user: str,
     dry_run: bool,
 ):
 
     # Get configuration
-    dorado_executable = run.config.dorado_executable
-    basecalling_model = run.config.basecalling_model
-    modification_models = run.config.modification_models
+    dorado_executable = batch.run.config.dorado_executable
+    basecalling_model = batch.run.config.basecalling_model
+    modification_models = batch.run.config.modification_models
 
     # Convert path lists to strings
     pod5_files_str = " ".join([str(x) for x in batch.pod5_files])
@@ -224,8 +215,9 @@ def submit_basecalling_batch_to_slurm(
 #SBATCH --partition         gpu
 #SBATCH --gres              gpu:1
 #SBATCH --mail-type         FAIL
-#SBATCH --mail-user         simon.drue@clin.au.dk
+#SBATCH --mail-user         {mail_user}
 #SBATCH --output            {batch.script_file}.%j.out
+#SBATCH --name              eldorado-basecalling
         
         set -eu
         # Trap all lock files

@@ -6,7 +6,8 @@ from typing import List
 import pytest
 
 from eldorado import pod5_handling
-from eldorado.pod5_handling import BasecallingRun, is_file_inactive, needs_basecalling, contains_pod5_files, get_pod5_dirs_from_pattern
+from eldorado.pod5_handling import SequencingRun, is_file_inactive, needs_basecalling, contains_pod5_files, get_pod5_dirs_from_pattern
+from tests.test_utils import create_files
 
 
 @pytest.mark.parametrize(
@@ -95,7 +96,7 @@ def test_all_pod5_files_transfered(
         pod5_file.touch()
 
     # Act
-    result = BasecallingRun(pod5_dir_path).all_pod5_files_transferred()
+    result = SequencingRun(pod5_dir_path).all_pod5_files_transferred()
 
     # Assert
     assert result == expected
@@ -298,3 +299,74 @@ def test_needs_basecalling(tmp_path, pod5_files, other_files, expected):
     result = needs_basecalling(pod5_dir)
 
     assert result == expected
+
+
+@pytest.mark.usefixtures("mock_pod5_internals")
+@pytest.mark.parametrize(
+    "pod5_files, lock_files, done_files, expected",
+    [
+        pytest.param(
+            [],
+            [],
+            [],
+            [],
+            id="Empty",
+        ),
+        pytest.param(
+            ["file.pod5"],
+            [],
+            [],
+            ["file.pod5"],
+            id="Single pod5 file",
+        ),
+        pytest.param(
+            ["file_1.pod5", "file_2.pod5"],
+            [],
+            [],
+            ["file_1.pod5", "file_2.pod5"],
+            id="Two pod5 files",
+        ),
+        pytest.param(
+            ["file.pod5"],
+            ["file.pod5.lock"],
+            [],
+            [],
+            id="Skip pod5 file with lock file",
+        ),
+        pytest.param(
+            ["file.pod5"],
+            [],
+            ["file.pod5.done"],
+            [],
+            id="Skip pod5 file with done file",
+        ),
+        pytest.param(
+            ["file.pod5", "new_file.pod5"],
+            ["file.pod5.lock"],
+            [],
+            ["new_file.pod5"],
+            id="One pod5 done and one new pod5 file for basecalling",
+        ),
+    ],
+)
+def test_get_unbasecalled_pod5_files(tmp_path, pod5_files, lock_files, done_files, expected):
+    # Arrange
+    # Insert root dir
+    pod5_dir = tmp_path / "pod5"
+    pod5_files = [pod5_dir / file for file in pod5_files]
+    create_files(pod5_files)
+
+    run = SequencingRun(pod5_dir)
+
+    lock_files = [run.basecalling_lock_files_dir / file for file in lock_files]
+    done_files = [run.basecalling_done_files_dir / file for file in done_files]
+
+    create_files(lock_files)
+    create_files(done_files)
+
+    # Act
+    unbasecalled_files = run.get_unbasecalled_pod5_files()
+    unbasecalled_files = [f.name for f in unbasecalled_files]
+
+    # Assert
+    assert set(unbasecalled_files) == set(expected)

@@ -2,18 +2,17 @@ import subprocess
 
 from pathlib import Path
 
-from typing import List
-
 from eldorado.constants import BARCODING_KITS, DORADO_EXECUTABLE
 from eldorado.logging_config import logger
-from eldorado.pod5_handling import BasecallingRun
+from eldorado.pod5_handling import SequencingRun
 from eldorado.utils import is_in_queue
 
 
 def submit_demux_to_slurm(
-    pod5_dir: BasecallingRun,
+    pod5_dir: SequencingRun,
     sample_sheet: Path,
     dry_run: bool,
+    mail_user: str,
 ):
 
     # Construct SLURM job script
@@ -23,9 +22,10 @@ def submit_demux_to_slurm(
 #SBATCH --time              12:00:00
 #SBATCH --cpus-per-task     16
 #SBATCH --mem               128g
-#SBATCH --mail-type         FAIL
-#SBATCH --mail-user         simon.drue@clin.au.dk
+#SBATCH --mail-type         FAIL,END
+#SBATCH --mail-user         {mail_user}
 #SBATCH --output            {pod5_dir.demux_script_file}.%j.out
+#SBATCH --name              eldorado-demux
 
         # Make sure .lock is removed when job is done
         trap 'rm {pod5_dir.demux_lock_file}' EXIT
@@ -75,7 +75,7 @@ def submit_demux_to_slurm(
         f.write(job_id.stdout.decode().strip())
 
 
-def needs_demultiplexing(run: BasecallingRun) -> bool:
+def demultiplexing_is_pending(run: SequencingRun) -> bool:
     return (
         not run.demux_done_file.exists()
         and not run.demux_lock_file.exists()
@@ -86,7 +86,8 @@ def needs_demultiplexing(run: BasecallingRun) -> bool:
 
 
 def process_demultiplexing(
-    run: BasecallingRun,
+    run: SequencingRun,
+    mail_user: str,
     dry_run: bool,
 ):
     sample_sheet = run.get_sample_sheet_path()
@@ -112,7 +113,7 @@ def process_demultiplexing(
 
         # Move merged BAM file to output dir. Use library pool ID as filename
         run.output_dir.mkdir(parents=True, exist_ok=True)
-        run.merged_bam.rename(run.metadata.library_pool_id)
+        run.merged_bam.rename(run.output_dir / f"{run.metadata.library_pool_id}.bam")
 
         # Create done file
         run.demux_done_file.parent.mkdir(parents=True, exist_ok=True)
@@ -124,6 +125,7 @@ def process_demultiplexing(
         pod5_dir=run,
         sample_sheet=sample_sheet,
         dry_run=dry_run,
+        mail_user=mail_user,
     )
 
 
@@ -139,7 +141,7 @@ def sample_sheet_has_alias_and_barcode(sample_sheet: Path) -> bool:
     return all(field in header for field in required_fields)
 
 
-def cleanup_demultiplexing_lock_files(pod5_dir: BasecallingRun):
+def cleanup_demultiplexing_lock_files(pod5_dir: SequencingRun):
     # Return if lock file does not exist
     if not pod5_dir.demux_lock_file.exists():
         return

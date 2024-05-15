@@ -5,23 +5,23 @@ import csv
 
 from pathlib import Path
 
-from eldorado.pod5_handling import BasecallingRun
+from eldorado.pod5_handling import SequencingRun
 from eldorado.logging_config import logger
 
 
-def needs_cleanup(run: BasecallingRun) -> bool:
+def needs_cleanup(run: SequencingRun) -> bool:
     return run.demux_done_file.exists() and any(run.output_dir.glob("*.bam"))
 
 
-def cleanup_output_dir(pod5_dir: BasecallingRun) -> None:
+def cleanup_output_dir(pod5_dir: SequencingRun) -> None:
 
     # Remove all batch that have not been used for the final BAM file
     cleanup_stalled_basecalling_dirs(pod5_dir)
 
     # Concatenate all batch log files to a single csv file
     log_files = pod5_dir.basecalling_batches_dir.glob("*/basecalled.log")
-    dict_list = load_logs_as_dicts(log_files)
-    generate_final_log_csv(pod5_dir.basecalling_summary, dict_list)
+    log_dicts = load_logs_as_dicts(log_files)
+    generate_final_log_csv(pod5_dir.basecalling_summary, log_dicts)
 
     # Clean up of basecalling
     subprocess.run(["rm", "-rf", str(pod5_dir.basecalling_working_dir)], check=True)
@@ -56,7 +56,7 @@ def load_logs_as_dicts(log_files: List[Path] | Generator[Path, None, None]):
     return dict_list
 
 
-def cleanup_stalled_basecalling_dirs(pod5_dir: BasecallingRun):
+def cleanup_stalled_basecalling_dirs(pod5_dir: SequencingRun):
 
     stalled_batch_dirs: set[Path] = {batch_dir for batch_dir in pod5_dir.basecalling_batches_dir.glob("*") if not (batch_dir / "batch.done").exists()}
 

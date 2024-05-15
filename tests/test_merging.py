@@ -1,7 +1,7 @@
 import pytest
 
 from eldorado.merging import all_existing_pod5_files_basecalled, all_existing_batches_are_done
-from eldorado.pod5_handling import BasecallingRun
+from eldorado.pod5_handling import SequencingRun
 
 
 @pytest.mark.usefixtures("mock_pod5_internals")
@@ -75,7 +75,7 @@ def test_all_existing_pod5_files_basecalled(
         file.touch()
 
     # Act
-    pod5_dir = BasecallingRun(pod5_dir)
+    pod5_dir = SequencingRun(pod5_dir)
     result = all_existing_pod5_files_basecalled(pod5_dir=pod5_dir)
 
     # Assert
@@ -137,7 +137,7 @@ def test_all_existing_batches_are_done(
         file.touch()
 
     # Act
-    result = all_existing_batches_are_done(BasecallingRun(pod5_dir))
+    result = all_existing_batches_are_done(SequencingRun(pod5_dir))
 
     # Assert
     assert result == expected

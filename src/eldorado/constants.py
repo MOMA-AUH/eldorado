@@ -1,11 +1,15 @@
-from pathlib import Path
-
 MIN_TIME = 30 * 60  # 30 minutes
 
-DORADO_EXECUTABLE = Path("/faststorage/project/MomaReference/BACKUP/nanopore/software/dorado/dorado-0.6.0-linux-x64/bin/dorado")
+# Fields:
+PROJECT_ID = "project_id"
+DORADO_EXECUTABLE = "dorado_executable"
+BASECALLING_MODEL = "basecalling_model"
+MOD_5MCG_5HMCG = "mod_5mcg_5hmcg"
+MOD_6MA = "mod_6ma"
 
-MODELS_DIR = Path("/faststorage/project/MomaReference/BACKUP/nanopore/models/dorado_models")
-MODIFICATION_OPTIONS = ["5mCG_5hmCG", "6mA"]
+REQUIRED_PROJECT_CONFIG_FIELDS = [PROJECT_ID, DORADO_EXECUTABLE, BASECALLING_MODEL, MOD_5MCG_5HMCG, MOD_6MA]
+
+DEFAULT_PROJECT_NAME = "default"
 
 BARCODING_KITS = [
     "EXP-NBD103",
