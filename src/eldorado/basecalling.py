@@ -217,7 +217,7 @@ def submit_basecalling_batch_to_slurm(
 #SBATCH --mail-type         FAIL
 #SBATCH --mail-user         {mail_user}
 #SBATCH --output            {batch.script_file}.%j.out
-#SBATCH --name              eldorado-basecalling
+#SBATCH --job-name          eldorado-basecalling
         
         set -eu
         # Trap all lock files
@@ -296,7 +296,7 @@ def submit_basecalling_batch_to_slurm(
     # Write Slurm script to a file
     batch.script_file.parent.mkdir(exist_ok=True, parents=True)
     with open(batch.script_file, "w", encoding="utf-8") as f:
-        logger.info("Writing Slurm script to %s", str(batch.script_file))
+        logger.info("Writing script to %s", str(batch.script_file))
         f.write(slurm_script)
 
     if dry_run:
@@ -304,15 +304,15 @@ def submit_basecalling_batch_to_slurm(
         return
 
     # Submit the job using Slurm
-    run_out = subprocess.run(
+    std_out = subprocess.run(
         ["sbatch", "--parsable", str(batch.script_file)],
         capture_output=True,
         check=True,
     )
 
-    # Get job id
-    job_id = run_out.stdout.decode("utf-8").strip()
-
-    # Write slurm id file
+    # Write job ID to file
+    job_id = std_out.stdout.decode("utf-8").strip()
     with open(batch.slurm_id_file, "w", encoding="utf-8") as f:
         f.write(job_id)
+
+    logger.info("Submitted basecalling job to SLURM with job ID %s", job_id)

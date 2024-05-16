@@ -23,7 +23,7 @@ def submit_merging_to_slurm(
     run: SequencingRun,
     mail_user: str,
     dry_run: bool,
-):
+) -> None:
 
     bam_batch_files = run.basecalling_batches_dir.glob("*/*.bam")
     bam_batch_files_str = " ".join([str(x) for x in bam_batch_files])
@@ -39,7 +39,7 @@ def submit_merging_to_slurm(
 #SBATCH --mail-type         FAIL
 #SBATCH --mail-user         {mail_user}
 #SBATCH --output            {run.merge_script_file}.%j.out
-#SBATCH --name              eldorado-merge
+#SBATCH --job-name          eldorado-merge
 
         set -eu
         
@@ -70,7 +70,7 @@ def submit_merging_to_slurm(
     # Write Slurm script to a file
     run.merge_script_file.parent.mkdir(exist_ok=True, parents=True)
     with open(run.merge_script_file, "w", encoding="utf-8") as f:
-        logger.info("Writing Slurm script to %s", str(run.merge_script_file))
+        logger.info("Writing script to %s", str(run.merge_script_file))
         f.write(slurm_script)
 
     if dry_run:
@@ -78,7 +78,7 @@ def submit_merging_to_slurm(
         return
 
     # Submit the job using Slurm
-    job_id = subprocess.run(
+    std_out = subprocess.run(
         ["sbatch", "--parsable", str(run.merge_script_file)],
         capture_output=True,
         check=True,
@@ -88,8 +88,12 @@ def submit_merging_to_slurm(
     run.merge_lock_file.parent.mkdir(exist_ok=True, parents=True)
     run.merge_lock_file.touch()
 
+    # Write job ID to file
+    job_id = std_out.stdout.decode().strip()
     with open(run.merge_job_id_file, "w", encoding="utf-8") as f:
-        f.write(job_id.stdout.decode().strip())
+        f.write(job_id)
+
+    logger.info("Submitted merging job to SLURM with job ID %s", job_id)
 
 
 def merging_is_pending(run: SequencingRun) -> bool:
@@ -103,6 +107,7 @@ def merging_is_pending(run: SequencingRun) -> bool:
     )
 
 
+# TODO: This might be the correct implementation. Not all batches need to be done, only the relevent ones
 def all_existing_batches_are_done(pod5_dir: SequencingRun) -> bool:
     batch_dirs = (d for d in pod5_dir.basecalling_batches_dir.glob("*") if d.is_dir())
     batch_done_files = (d / "batch.done" for d in batch_dirs)

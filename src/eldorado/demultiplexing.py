@@ -25,7 +25,7 @@ def submit_demux_to_slurm(
 #SBATCH --mail-type         FAIL,END
 #SBATCH --mail-user         {mail_user}
 #SBATCH --output            {pod5_dir.demux_script_file}.%j.out
-#SBATCH --name              eldorado-demux
+#SBATCH --job-name          eldorado-demux
 
         # Make sure .lock is removed when job is done
         trap 'rm {pod5_dir.demux_lock_file}' EXIT
@@ -60,7 +60,7 @@ def submit_demux_to_slurm(
         return
 
     # Submit the job using Slurm
-    job_id = subprocess.run(
+    std_out = subprocess.run(
         ["sbatch", str(pod5_dir.demux_script_file)],
         capture_output=True,
         check=True,
@@ -71,8 +71,11 @@ def submit_demux_to_slurm(
     pod5_dir.demux_lock_file.touch()
 
     # Write job ID to file
+    job_id = std_out.stdout.decode().strip()
     with open(pod5_dir.demux_job_id_file, "w", encoding="utf-8") as f:
-        f.write(job_id.stdout.decode().strip())
+        f.write(job_id)
+
+    logger.info("Submitted job to Slurm with ID %s", job_id)
 
 
 def demultiplexing_is_pending(run: SequencingRun) -> bool:
