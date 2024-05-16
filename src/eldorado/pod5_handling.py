@@ -7,6 +7,7 @@ import re
 
 from eldorado.constants import MIN_TIME
 from eldorado.configuration import Metadata, get_metadata, Config
+import eldorado.filenames as fn
 
 
 @dataclass
@@ -63,32 +64,32 @@ class SequencingRun:
 
     def __post_init__(self):
         # General
-        self.output_dir = self.pod5_dir.parent / (self.pod5_dir.name.replace("pod5", "bam") + "_eldorado")
-        self.basecalling_summary = self.output_dir / "basecalling_summary.txt"
+        self.output_dir = self.pod5_dir.parent / (self.pod5_dir.name.replace("pod5", "bam") + fn.OUTPUT_DIR_SUFFIX)
+        self.basecalling_summary = self.output_dir / fn.BASECALLING_SUMMARY
 
         # Dorado config
-        self.dorado_config_file = self.output_dir / "dorado_config.json"
+        self.dorado_config_file = self.output_dir / fn.DORADO_CONFIG
 
         # Basecalling
-        self.basecalling_working_dir = self.output_dir / "basecalling"
-        self.basecalling_batches_dir = self.basecalling_working_dir / "batches"
-        self.basecalling_lock_files_dir = self.basecalling_working_dir / "lock_files"
-        self.basecalling_done_files_dir = self.basecalling_working_dir / "done_files"
+        self.basecalling_working_dir = self.output_dir / fn.BC_DIR
+        self.basecalling_batches_dir = self.basecalling_working_dir / fn.BC_BATCHES_DIR
+        self.basecalling_lock_files_dir = self.basecalling_working_dir / fn.BC_LOCK_DIR
+        self.basecalling_done_files_dir = self.basecalling_working_dir / fn.BC_DONE_DIR
 
         # Merging
-        self.merging_working_dir = self.output_dir / "merging"
-        self.merged_bam = self.merging_working_dir / "merged.bam"
-        self.merge_script_file = self.merging_working_dir / "run_merging.sh"
-        self.merge_job_id_file = self.merging_working_dir / "slurm_id.txt"
-        self.merge_lock_file = self.merging_working_dir / "merge.lock"
-        self.merge_done_file = self.merging_working_dir / "merge.done"
+        self.merging_working_dir = self.output_dir / fn.MERGE_DIR
+        self.merged_bam = self.merging_working_dir / fn.MERGE_BAM
+        self.merge_script_file = self.merging_working_dir / fn.MERGE_SCRIPT
+        self.merge_job_id_file = self.merging_working_dir / fn.MERGE_JOB_ID
+        self.merge_lock_file = self.merging_working_dir / fn.MERGE_LOCK
+        self.merge_done_file = self.merging_working_dir / fn.MERGE_DONE
 
         # Demultiplexing
-        self.demux_working_dir = self.output_dir / "demultiplexing"
-        self.demux_script_file = self.demux_working_dir / "run_demux.sh"
-        self.demux_job_id_file = self.demux_working_dir / "slurm_id.txt"
-        self.demux_lock_file = self.demux_working_dir / "demux.lock"
-        self.demux_done_file = self.demux_working_dir / "demux.done"
+        self.demux_working_dir = self.output_dir / fn.DEMUX_DIR
+        self.demux_script_file = self.demux_working_dir / fn.DEMUX_SCRIPT
+        self.demux_job_id_file = self.demux_working_dir / fn.DEMUX_JOB_ID
+        self.demux_lock_file = self.demux_working_dir / fn.DEMUX_LOCK
+        self.demux_done_file = self.demux_working_dir / fn.DEMUX_DONE
 
     def get_transferred_pod5_files(self) -> Generator[Path, None, None]:
         # Get all pod5 files
@@ -109,7 +110,7 @@ class SequencingRun:
     def get_sample_sheet_path(self) -> Path | None:
         return next(self.pod5_dir.parent.glob("sample_sheet*.csv"), None)
 
-    def all_pod5_files_transferred(self) -> bool:
+    def all_pod5_files_are_transferred(self) -> bool:
         # Get final summary
         final_summary = self.get_final_summary()
 

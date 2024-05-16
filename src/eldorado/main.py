@@ -354,29 +354,28 @@ def process_sequencing_run(
             mail_user=mail_user,
             dry_run=dry_run,
         )
-
     # Merging
-    if run_merging and merging_is_pending(run):
+    elif run_merging and merging_is_pending(run):
         logger.info("Running merging...")
         submit_merging_to_slurm(
             run,
             mail_user=mail_user,
             dry_run=dry_run,
         )
-
     # Demultiplexing
-    if run_demultiplexing and demultiplexing_is_pending(run):
+    elif run_demultiplexing and demultiplexing_is_pending(run):
         logger.info("Running demultiplexing...")
         process_demultiplexing(
             run=run,
             mail_user=mail_user,
             dry_run=dry_run,
         )
-
     # Cleanup
-    if run_cleanup and needs_cleanup(run):
+    elif run_cleanup and needs_cleanup(run):
         logger.info("Finalizing output...")
         cleanup_output_dir(run)
+    else:
+        logger.info("Nothing to do...")
 
 
 if __name__ == "__main__":

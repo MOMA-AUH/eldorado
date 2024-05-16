@@ -6,6 +6,8 @@ import csv
 from pathlib import Path
 
 from eldorado.pod5_handling import SequencingRun
+from eldorado.merging import get_done_batch_dirs
+from eldorado.filenames import BATCH_LOG
 from eldorado.logging_config import logger
 
 
@@ -13,24 +15,25 @@ def needs_cleanup(run: SequencingRun) -> bool:
     return run.demux_done_file.exists() and any(run.output_dir.glob("*.bam"))
 
 
-def cleanup_output_dir(pod5_dir: SequencingRun) -> None:
+def cleanup_output_dir(run: SequencingRun) -> None:
 
-    # Remove all batch that have not been used for the final BAM file
-    cleanup_stalled_basecalling_dirs(pod5_dir)
-
-    # Concatenate all batch log files to a single csv file
-    log_files = pod5_dir.basecalling_batches_dir.glob("*/basecalled.log")
+    # Concatenate batch log files from done batches to a single csv file
+    batch_dirs = get_done_batch_dirs(run)
+    log_files = [log_file for batch_dir in batch_dirs for log_file in batch_dir.glob(BATCH_LOG)]
     log_dicts = load_logs_as_dicts(log_files)
-    generate_final_log_csv(pod5_dir.basecalling_summary, log_dicts)
+    generate_final_log_csv(run.basecalling_summary, log_dicts)
+    logger.info("Generated final log CSV file %s", run.basecalling_summary)
 
     # Clean up of basecalling
-    subprocess.run(["rm", "-rf", str(pod5_dir.basecalling_working_dir)], check=True)
+    subprocess.run(["rm", "-rf", str(run.basecalling_working_dir)], check=True)
 
     # Clean up of merging
-    subprocess.run(["rm", "-rf", str(pod5_dir.merging_working_dir)], check=True)
+    subprocess.run(["rm", "-rf", str(run.merging_working_dir)], check=True)
 
     # Clean up of demultiplexing
-    subprocess.run(["rm", "-rf", str(pod5_dir.demux_working_dir)], check=True)
+    subprocess.run(["rm", "-rf", str(run.demux_working_dir)], check=True)
+
+    logger.info("Removed working directories")
 
 
 def generate_final_log_csv(csv_file: Path, logs: List[dict]):
@@ -54,12 +57,3 @@ def load_logs_as_dicts(log_files: List[Path] | Generator[Path, None, None]):
                 log_dict[key] = value
             dict_list.append(log_dict)
     return dict_list
-
-
-def cleanup_stalled_basecalling_dirs(pod5_dir: SequencingRun):
-
-    stalled_batch_dirs: set[Path] = {batch_dir for batch_dir in pod5_dir.basecalling_batches_dir.glob("*") if not (batch_dir / "batch.done").exists()}
-
-    for batch_dir in stalled_batch_dirs:
-        logger.info("Removing stalled batch directory %s", str(batch_dir))
-        subprocess.run(["rm", "-rf", str(batch_dir)], check=True)

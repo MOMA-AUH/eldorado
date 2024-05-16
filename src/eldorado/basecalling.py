@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from eldorado.logging_config import logger
 from eldorado.pod5_handling import SequencingRun
 from eldorado.utils import is_in_queue
+from eldorado.filenames import BATCH_DONE, BATCH_JOB_ID, BATCH_MANIFEST, BATCH_BAM, BATCH_LOG, BATCH_SCRIPT
 
 
 @dataclass
@@ -43,12 +44,12 @@ class BasecallingBatch:
         self.working_dir = self.run.basecalling_batches_dir / self.batch_id
 
         # Output files
-        self.output_bam = self.working_dir / "basecalled.bam"
-        self.log_file = self.working_dir / "basecalled.log"
-        self.pod5_manifest = self.working_dir / "pod5_manifest.txt"
-        self.slurm_id_file = self.working_dir / "slurm_id.txt"
-        self.script_file = self.working_dir / "run_basecaller.sh"
-        self.done_file = self.working_dir / "batch.done"
+        self.output_bam = self.working_dir / BATCH_BAM
+        self.log_file = self.working_dir / BATCH_LOG
+        self.pod5_manifest = self.working_dir / BATCH_MANIFEST
+        self.slurm_id_file = self.working_dir / BATCH_JOB_ID
+        self.script_file = self.working_dir / BATCH_SCRIPT
+        self.done_file = self.working_dir / BATCH_DONE
 
         # Pod5 lock files
         self.pod5_lock_files = [self.run.basecalling_lock_files_dir / f"{pod5_file.name}.lock" for pod5_file in self.pod5_files]
@@ -80,12 +81,12 @@ def cleanup_basecalling_lock_files(pod5_dir: SequencingRun):
     for batch_dir in pod5_dir.basecalling_batches_dir.glob("*"):
 
         # Skip if job is done
-        if Path(batch_dir / "batch.done").exists():
+        if Path(batch_dir / BATCH_DONE).exists():
             continue
 
         # If job is in queue collect pod5 files and skip
-        slurm_id_file = batch_dir / "slurm_id.txt"
-        pod5_manifest_file = batch_dir / "pod5_manifest.txt"
+        slurm_id_file = batch_dir / BATCH_JOB_ID
+        pod5_manifest_file = batch_dir / BATCH_MANIFEST
         if slurm_id_file.exists() and pod5_manifest_file.exists():
             job_id = slurm_id_file.read_text().strip()
             if is_in_queue(job_id):
@@ -162,7 +163,7 @@ def batch_should_be_skipped(basecalling_batch: BasecallingBatch, min_batch_size:
         return False
 
     # Check if unbasecalled pod5 files are the only ones left
-    if basecalling_batch.pod5_files and basecalling_batch.run.all_pod5_files_transferred():
+    if basecalling_batch.pod5_files and basecalling_batch.run.all_pod5_files_are_transferred():
         return False
 
     return True

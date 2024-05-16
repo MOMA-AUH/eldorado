@@ -1,8 +1,11 @@
 import subprocess
 
+from pathlib import Path
+
 from eldorado.logging_config import logger
 from eldorado.pod5_handling import SequencingRun
 from eldorado.utils import is_in_queue
+from eldorado.filenames import BATCH_DONE, BATCH_BAM
 
 
 def cleanup_merge_lock_files(pod5_dir: SequencingRun):
@@ -25,8 +28,9 @@ def submit_merging_to_slurm(
     dry_run: bool,
 ) -> None:
 
-    bam_batch_files = run.basecalling_batches_dir.glob("*/*.bam")
-    bam_batch_files_str = " ".join([str(x) for x in bam_batch_files])
+    batch_dirs = get_done_batch_dirs(run)
+    bam_files = [bam_file for batch_dir in batch_dirs for bam_file in batch_dir.glob(BATCH_BAM)]
+    bam_files_str = " ".join([str(x) for x in bam_files])
 
     # Construct SLURM job script
     cores = 4
@@ -57,7 +61,7 @@ def submit_merging_to_slurm(
         samtools merge \\
             --threads {cores} \\
             -o ${{TEMP_BAM_FILE}} \\
-            {bam_batch_files_str}
+            {bam_files_str}
 
         # Move temp file to output 
         mv ${{TEMP_BAM_FILE}} {run.merged_bam}
@@ -101,19 +105,19 @@ def merging_is_pending(run: SequencingRun) -> bool:
     return (
         not run.merge_done_file.exists()
         and not run.merge_lock_file.exists()
-        and all_existing_batches_are_done(run)
-        and run.all_pod5_files_transferred()
-        and all_existing_pod5_files_basecalled(run)
+        and run.all_pod5_files_are_transferred()
+        and all_pod5_files_are_basecalled(run)
     )
 
 
-# TODO: This might be the correct implementation. Not all batches need to be done, only the relevent ones
-def all_existing_batches_are_done(pod5_dir: SequencingRun) -> bool:
-    batch_dirs = (d for d in pod5_dir.basecalling_batches_dir.glob("*") if d.is_dir())
-    batch_done_files = (d / "batch.done" for d in batch_dirs)
-    return all(f.exists() for f in batch_done_files)
-
-
-def all_existing_pod5_files_basecalled(pod5_dir: SequencingRun) -> bool:
+def all_pod5_files_are_basecalled(pod5_dir: SequencingRun) -> bool:
     done_files = [x.name for x in pod5_dir.get_done_files()]
     return all(f"{x.name}.done" in done_files for x in pod5_dir.get_transferred_pod5_files())
+
+
+def get_done_batch_dirs(run: SequencingRun) -> list[Path]:
+    # Batch dirs
+    batch_dirs = [d for d in run.basecalling_batches_dir.glob("*") if d.is_dir()]
+
+    # Filter out batch dirs that do not have a done file
+    return [d for d in batch_dirs if (d / BATCH_DONE).exists()]

@@ -96,7 +96,7 @@ def test_all_pod5_files_transfered(
         pod5_file.touch()
 
     # Act
-    result = SequencingRun(pod5_dir_path).all_pod5_files_transferred()
+    result = SequencingRun(pod5_dir_path).all_pod5_files_are_transferred()
 
     # Assert
     assert result == expected

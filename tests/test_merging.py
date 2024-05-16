@@ -1,6 +1,6 @@
 import pytest
 
-from eldorado.merging import all_existing_pod5_files_basecalled, all_existing_batches_are_done
+from eldorado.merging import all_pod5_files_are_basecalled, get_done_batch_dirs
 from eldorado.pod5_handling import SequencingRun
 
 
@@ -60,7 +60,6 @@ def test_all_existing_pod5_files_basecalled(
     pod5_dir,
     files,
     expected,
-    mock_pod5_internals,
 ):
     # Arrange
 
@@ -76,60 +75,76 @@ def test_all_existing_pod5_files_basecalled(
 
     # Act
     pod5_dir = SequencingRun(pod5_dir)
-    result = all_existing_pod5_files_basecalled(pod5_dir=pod5_dir)
+    result = all_pod5_files_are_basecalled(pod5_dir=pod5_dir)
 
     # Assert
     assert result == expected
 
 
+@pytest.mark.usefixtures("mock_pod5_internals")
 @pytest.mark.parametrize(
     "pod5_dir, files, expected",
     [
         pytest.param(
             "",
             [],
-            True,
+            [],
             id="Empty",
         ),
         pytest.param(
             "sample/pod5",
             [
                 "sample/bam_eldorado/basecalling/batches/1/batch.done",
+                "sample/bam_eldorado/basecalling/batches/1/file.bam",
             ],
-            True,
+            [
+                "sample/bam_eldorado/basecalling/batches/1",
+            ],
             id="Single batch done",
         ),
         pytest.param(
             "sample/pod5",
             [
                 "sample/bam_eldorado/basecalling/batches/1/batch.done",
+                "sample/bam_eldorado/basecalling/batches/1/file.bam",
                 "sample/bam_eldorado/basecalling/batches/2/batch.done",
+                "sample/bam_eldorado/basecalling/batches/2/file.bam",
+                "sample/bam_eldorado/basecalling/batches/3/batch.done",
+                "sample/bam_eldorado/basecalling/batches/3/file.bam",
             ],
-            True,
+            [
+                "sample/bam_eldorado/basecalling/batches/1",
+                "sample/bam_eldorado/basecalling/batches/2",
+                "sample/bam_eldorado/basecalling/batches/3",
+            ],
             id="Multiple batches done",
         ),
         pytest.param(
             "sample/pod5",
             [
                 "sample/bam_eldorado/basecalling/batches/1/batch.done",
+                "sample/bam_eldorado/basecalling/batches/1/file.bam",
                 "sample/bam_eldorado/basecalling/batches/2/other.file",
+                "sample/bam_eldorado/basecalling/batches/2/file.bam",
             ],
-            False,
+            [
+                "sample/bam_eldorado/basecalling/batches/1",
+            ],
             id="Multiple batches not all done",
         ),
     ],
 )
-def test_all_existing_batches_are_done(
+def test_get_done_batch_dirs(
     tmp_path,
     pod5_dir,
     files,
     expected,
-    mock_pod5_internals,
 ):
     # Arrange
     # Insert root directory
     pod5_dir = tmp_path / pod5_dir
     files = [tmp_path / file for file in files]
+    expected = [tmp_path / file for file in expected]
 
     # Create files
     for file in files:
@@ -137,7 +152,7 @@ def test_all_existing_batches_are_done(
         file.touch()
 
     # Act
-    result = all_existing_batches_are_done(SequencingRun(pod5_dir))
+    result = get_done_batch_dirs(SequencingRun(pod5_dir))
 
     # Assert
     assert result == expected

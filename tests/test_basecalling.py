@@ -157,14 +157,14 @@ def test_batch_should_be_skipped(tmp_path, pod5_dir, existing_files, min_batch_s
             [
                 "pod5/file.pod5",
                 "bam_eldorado/basecalling/batches/1234/pod5_manifest.txt",
-                "bam_eldorado/basecalling/batches/1234/slurm_id.txt",
+                "bam_eldorado/basecalling/batches/1234/batch_job_id.txt",
                 "bam_eldorado/basecalling/lock_files/file.pod5.lock",
             ],
             True,
             [
                 "pod5/file.pod5",
                 "bam_eldorado/basecalling/batches/1234/pod5_manifest.txt",
-                "bam_eldorado/basecalling/batches/1234/slurm_id.txt",
+                "bam_eldorado/basecalling/batches/1234/batch_job_id.txt",
                 "bam_eldorado/basecalling/lock_files/file.pod5.lock",
             ],
             id="Pod5 file in queue",
@@ -174,14 +174,14 @@ def test_batch_should_be_skipped(tmp_path, pod5_dir, existing_files, min_batch_s
             [
                 "pod5/file.pod5",
                 "bam_eldorado/basecalling/batches/1234/pod5_manifest.txt",
-                "bam_eldorado/basecalling/batches/1234/slurm_id.txt",
+                "bam_eldorado/basecalling/batches/1234/batch_job_id.txt",
                 "bam_eldorado/basecalling/lock_files/file.pod5.lock",
             ],
             False,
             [
                 "pod5/file.pod5",
                 "bam_eldorado/basecalling/batches/1234/pod5_manifest.txt",
-                "bam_eldorado/basecalling/batches/1234/slurm_id.txt",
+                "bam_eldorado/basecalling/batches/1234/batch_job_id.txt",
             ],
             id="Missing pod5 manifest",
         ),
