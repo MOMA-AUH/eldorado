@@ -5,7 +5,7 @@ from pathlib import Path
 from eldorado.constants import BARCODING_KITS, DORADO_EXECUTABLE
 from eldorado.logging_config import logger
 from eldorado.pod5_handling import SequencingRun
-from eldorado.utils import is_in_queue
+from eldorado.utils import is_in_queue, write_to_file
 
 
 def submit_demux_to_slurm(
@@ -27,11 +27,11 @@ def submit_demux_to_slurm(
 #SBATCH --output            {pod5_dir.demux_script_file}.%j.out
 #SBATCH --job-name          eldorado-demux
 
+        set -eu
+
         # Make sure .lock is removed when job is done
         trap 'rm {pod5_dir.demux_lock_file}' EXIT
         
-        set -eu
-
         # Run demux
         {DORADO_EXECUTABLE} demux \\
             --verbose \\
@@ -51,9 +51,8 @@ def submit_demux_to_slurm(
     """
 
     # Write Slurm script to a file
-    pod5_dir.demux_script_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(pod5_dir.demux_script_file, "w", encoding="utf-8") as f:
-        f.write(slurm_script)
+    logger.info("Writing script to %s", str(pod5_dir.demux_script_file))
+    write_to_file(pod5_dir.demux_script_file, slurm_script)
 
     if dry_run:
         logger.info("Dry run. Skipping submission of job to Slurm.")
@@ -72,8 +71,7 @@ def submit_demux_to_slurm(
 
     # Write job ID to file
     job_id = std_out.stdout.decode().strip()
-    with open(pod5_dir.demux_job_id_file, "w", encoding="utf-8") as f:
-        f.write(job_id)
+    write_to_file(pod5_dir.demux_job_id_file, job_id)
 
     logger.info("Submitted job to Slurm with ID %s", job_id)
 

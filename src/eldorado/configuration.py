@@ -19,6 +19,7 @@ from eldorado.constants import (
     MOD_6MA,
 )
 from eldorado.logging_config import logger
+from eldorado.utils import write_to_file
 
 
 @dataclass
@@ -47,17 +48,15 @@ class Config:
     modification_models: List[Path]
 
     def save(self, path: Path):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "dorado_executable": str(self.dorado_executable),
-                    "basecalling_model": str(self.basecalling_model),
-                    "modification_models": [str(x) for x in self.modification_models],
-                },
-                f,
-                indent=4,
-            )
+        content = json.dumps(
+            {
+                "dorado_executable": str(self.dorado_executable),
+                "basecalling_model": str(self.basecalling_model),
+                "modification_models": [str(x) for x in self.modification_models],
+            },
+            indent=4,
+        )
+        write_to_file(path, content)
 
     @classmethod
     def load(cls, path: Path):

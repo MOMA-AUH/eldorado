@@ -4,7 +4,7 @@ from pathlib import Path
 
 from eldorado.logging_config import logger
 from eldorado.pod5_handling import SequencingRun
-from eldorado.utils import is_in_queue
+from eldorado.utils import is_in_queue, write_to_file
 from eldorado.filenames import BATCH_DONE, BATCH_BAM
 
 
@@ -72,10 +72,8 @@ def submit_merging_to_slurm(
     """
 
     # Write Slurm script to a file
-    run.merge_script_file.parent.mkdir(exist_ok=True, parents=True)
-    with open(run.merge_script_file, "w", encoding="utf-8") as f:
-        logger.info("Writing script to %s", str(run.merge_script_file))
-        f.write(slurm_script)
+    logger.info("Writing script to %s", str(run.merge_script_file))
+    write_to_file(run.merge_script_file, slurm_script)
 
     if dry_run:
         logger.info("Dry run. Skipping submission of merging job.")
@@ -94,8 +92,7 @@ def submit_merging_to_slurm(
 
     # Write job ID to file
     job_id = std_out.stdout.decode().strip()
-    with open(run.merge_job_id_file, "w", encoding="utf-8") as f:
-        f.write(job_id)
+    write_to_file(run.merge_job_id_file, job_id)
 
     logger.info("Submitted merging job to SLURM with job ID %s", job_id)
 

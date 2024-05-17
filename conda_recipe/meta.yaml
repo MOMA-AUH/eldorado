@@ -1,0 +1,26 @@
+{% set name = "eldorado" %}
+{% set version = "0.0.0" %}
+{% set build_number = 0 %}
+
+package:
+  name: {{ name|lower }}
+  version: "{{ version }}"
+
+source:
+  git_rev: "v{{ version }}"
+  git_url: git@github.com:MOMA-AUH/eldorado.git
+
+build:
+  noarch: python
+  script: "{{ PYTHON }} -m pip install . -vv"
+  number: "{{ build_number }}"
+
+requirements:
+  build:
+    - python
+    - setuptools
+    - pip
+    - git
+  run:
+    - python>=3.10
+    - samtools=>1.17

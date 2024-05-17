@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from eldorado.logging_config import logger
 from eldorado.pod5_handling import SequencingRun
-from eldorado.utils import is_in_queue
+from eldorado.utils import is_in_queue, write_to_file
 from eldorado.filenames import BATCH_DONE, BATCH_JOB_ID, BATCH_MANIFEST, BATCH_BAM, BATCH_LOG, BATCH_SCRIPT
 
 
@@ -100,16 +100,10 @@ def cleanup_basecalling_lock_files(pod5_dir: SequencingRun):
             lock_file.unlink()
 
 
-def read_pod5_manifest(pod5_manifest_file):
+def read_pod5_manifest(pod5_manifest_file: Path) -> List[Path]:
     with open(pod5_manifest_file, "r", encoding="utf-8") as f:
         pod5_files = [Path(x.strip()) for x in f]
     return pod5_files
-
-
-def get_slurm_job_id(slurm_id_file: Path) -> str:
-    with open(slurm_id_file, "r", encoding="utf-8") as f:
-        job_id = f.read().strip()
-    return job_id
 
 
 def is_completed(job_id):
@@ -158,15 +152,17 @@ def process_unbasecalled_pod5_files(
 
 
 def batch_should_be_skipped(basecalling_batch: BasecallingBatch, min_batch_size: int) -> bool:
+
+    # Skip if there are no pod5 files
+    if not basecalling_batch.pod5_files:
+        return True
+
     # Check if there are enough pod5 files to basecall
     if len(basecalling_batch.pod5_files) >= min_batch_size:
         return False
 
     # Check if unbasecalled pod5 files are the only ones left
-    if basecalling_batch.pod5_files and basecalling_batch.run.all_pod5_files_are_transferred():
-        return False
-
-    return True
+    return not basecalling_batch.run.all_pod5_files_are_transferred()
 
 
 def basecalling_is_pending(run: SequencingRun) -> bool:
@@ -211,8 +207,8 @@ def submit_basecalling_batch_to_slurm(
 #!/bin/bash
 #SBATCH --account           MomaDiagnosticsHg38
 #SBATCH --time              7-00:00:00
-#SBATCH --cpus-per-task     4
-#SBATCH --mem               190g
+#SBATCH --cpus-per-task     2
+#SBATCH --mem               32g
 #SBATCH --partition         gpu
 #SBATCH --gres              gpu:1
 #SBATCH --mail-type         FAIL
@@ -295,10 +291,8 @@ def submit_basecalling_batch_to_slurm(
     """
 
     # Write Slurm script to a file
-    batch.script_file.parent.mkdir(exist_ok=True, parents=True)
-    with open(batch.script_file, "w", encoding="utf-8") as f:
-        logger.info("Writing script to %s", str(batch.script_file))
-        f.write(slurm_script)
+    logger.info("Writing script to %s", str(batch.script_file))
+    write_to_file(batch.script_file, slurm_script)
 
     if dry_run:
         logger.info("Dry run. Skipping submission of basecalling job.")
@@ -313,7 +307,6 @@ def submit_basecalling_batch_to_slurm(
 
     # Write job ID to file
     job_id = std_out.stdout.decode("utf-8").strip()
-    with open(batch.slurm_id_file, "w", encoding="utf-8") as f:
-        f.write(job_id)
+    write_to_file(batch.slurm_id_file, job_id)
 
     logger.info("Submitted basecalling job to SLURM with job ID %s", job_id)
