@@ -111,9 +111,9 @@ def scheduler(
         # Find pod5 dirs that needs processing (pattern: [project_id]/[sample_id]/[run_id]/pod5*)
         pattern = f"{project_config.project_id}/*/*/pod5*"
         runs = find_sequencning_runs_for_processing(root_dir, pattern)
+        logger.info("Found %d pod5 dir(s) that needs processing", len(runs))
 
         for run in runs:
-            logger.info("Found %d pod5 dir(s) that needs processing", len(runs))
             logger.info("Processing %s", str(run.pod5_dir))
 
             process_sequencing_run(

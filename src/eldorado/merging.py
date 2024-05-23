@@ -43,7 +43,7 @@ def submit_merging_to_slurm(
 #SBATCH --mail-type         FAIL
 #SBATCH --mail-user         {mail_user}
 #SBATCH --output            {run.merge_script_file}.%j.out
-#SBATCH --job-name          eldorado-merge
+#SBATCH --job-name          eldorado-merge-{run.metadata.library_pool_id}
 
         set -eu
         

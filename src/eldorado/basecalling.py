@@ -214,7 +214,7 @@ def submit_basecalling_batch_to_slurm(
 #SBATCH --mail-type         FAIL
 #SBATCH --mail-user         {mail_user}
 #SBATCH --output            {batch.script_file}.%j.out
-#SBATCH --job-name          eldorado-basecalling
+#SBATCH --job-name          eldorado-basecalling-{batch.run.metadata.library_pool_id}-{batch.batch_id}
         
         set -eu
         # Trap all lock files

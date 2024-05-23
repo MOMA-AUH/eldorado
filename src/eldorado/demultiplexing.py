@@ -2,18 +2,21 @@ import subprocess
 
 from pathlib import Path
 
-from eldorado.constants import BARCODING_KITS, DORADO_EXECUTABLE
+from eldorado.constants import BARCODING_KITS
 from eldorado.logging_config import logger
 from eldorado.pod5_handling import SequencingRun
 from eldorado.utils import is_in_queue, write_to_file
 
 
 def submit_demux_to_slurm(
-    pod5_dir: SequencingRun,
+    run: SequencingRun,
     sample_sheet: Path,
     dry_run: bool,
     mail_user: str,
 ):
+
+    # Get configuration
+    dorado_executable = run.config.dorado_executable
 
     # Construct SLURM job script
     slurm_script = f"""\
@@ -24,35 +27,35 @@ def submit_demux_to_slurm(
 #SBATCH --mem               128g
 #SBATCH --mail-type         FAIL,END
 #SBATCH --mail-user         {mail_user}
-#SBATCH --output            {pod5_dir.demux_script_file}.%j.out
-#SBATCH --job-name          eldorado-demux
+#SBATCH --output            {run.demux_script_file}.%j.out
+#SBATCH --job-name          eldorado-demux-{run.metadata.library_pool_id}
 
         set -eu
 
         # Make sure .lock is removed when job is done
-        trap 'rm {pod5_dir.demux_lock_file}' EXIT
+        trap 'rm {run.demux_lock_file}' EXIT
         
         # Run demux
-        {DORADO_EXECUTABLE} demux \\
+        {dorado_executable} demux \\
             --verbose \\
             --no-trim \\
             --sample-sheet {sample_sheet} \\
-            --kit-name {pod5_dir.metadata.sequencing_kit} \\
+            --kit-name {run.metadata.sequencing_kit} \\
             --threads 0 \\
             --output-dir ${{TEMPDIR}} \\
-            {pod5_dir.merged_bam}
+            {run.merged_bam}
 
         # Move output files from temp dir to output 
-        mv ${{TEMPDIR}}/*.bam {pod5_dir.output_dir}
+        mv ${{TEMPDIR}}/*.bam {run.output_dir}
 
         # Create done file
-        touch {pod5_dir.demux_done_file}
+        touch {run.demux_done_file}
 
     """
 
     # Write Slurm script to a file
-    logger.info("Writing script to %s", str(pod5_dir.demux_script_file))
-    write_to_file(pod5_dir.demux_script_file, slurm_script)
+    logger.info("Writing script to %s", str(run.demux_script_file))
+    write_to_file(run.demux_script_file, slurm_script)
 
     if dry_run:
         logger.info("Dry run. Skipping submission of job to Slurm.")
@@ -60,18 +63,18 @@ def submit_demux_to_slurm(
 
     # Submit the job using Slurm
     std_out = subprocess.run(
-        ["sbatch", str(pod5_dir.demux_script_file)],
+        ["sbatch", str(run.demux_script_file)],
         capture_output=True,
         check=True,
     )
 
     # Create .lock file
-    pod5_dir.demux_lock_file.parent.mkdir(parents=True, exist_ok=True)
-    pod5_dir.demux_lock_file.touch()
+    run.demux_lock_file.parent.mkdir(parents=True, exist_ok=True)
+    run.demux_lock_file.touch()
 
     # Write job ID to file
     job_id = std_out.stdout.decode().strip()
-    write_to_file(pod5_dir.demux_job_id_file, job_id)
+    write_to_file(run.demux_job_id_file, job_id)
 
     logger.info("Submitted job to Slurm with ID %s", job_id)
 
@@ -123,7 +126,7 @@ def process_demultiplexing(
 
     # Submit job to Slurm
     submit_demux_to_slurm(
-        pod5_dir=run,
+        run=run,
         sample_sheet=sample_sheet,
         dry_run=dry_run,
         mail_user=mail_user,
