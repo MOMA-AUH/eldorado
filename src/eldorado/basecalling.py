@@ -1,8 +1,9 @@
 import subprocess
+import time
+import textwrap
+
 from pathlib import Path
 from typing import List
-
-import time
 
 from dataclasses import dataclass, field
 
@@ -127,7 +128,7 @@ def is_completed(job_id):
 def process_unbasecalled_pod5_files(
     run: SequencingRun,
     min_batch_size: int,
-    mail_user: str,
+    mail_user: List[str],
     dry_run: bool,
 ):
 
@@ -152,7 +153,6 @@ def process_unbasecalled_pod5_files(
 
 
 def batch_should_be_skipped(basecalling_batch: BasecallingBatch, min_batch_size: int) -> bool:
-
     # Skip if there are no pod5 files
     if not basecalling_batch.pod5_files:
         return True
@@ -183,7 +183,7 @@ def has_unbasecalled_pod5_files(pod5_dir: SequencingRun) -> bool:
 
 def submit_basecalling_batch_to_slurm(
     batch: BasecallingBatch,
-    mail_user: str,
+    mail_user: List[str],
     dry_run: bool,
 ):
 
@@ -204,17 +204,17 @@ def submit_basecalling_batch_to_slurm(
         modified_bases_models_arg = f"--modified-bases-models {modified_bases_models_str}"
 
     slurm_script = f"""\
-#!/bin/bash
-#SBATCH --account           MomaDiagnosticsHg38
-#SBATCH --time              7-00:00:00
-#SBATCH --cpus-per-task     2
-#SBATCH --mem               32g
-#SBATCH --partition         gpu
-#SBATCH --gres              gpu:1
-#SBATCH --mail-type         FAIL
-#SBATCH --mail-user         {mail_user}
-#SBATCH --output            {batch.script_file}.%j.out
-#SBATCH --job-name          eldorado-basecalling-{batch.run.metadata.library_pool_id}-{batch.batch_id}
+        #!/bin/bash
+        #SBATCH --account           MomaDiagnosticsHg38
+        #SBATCH --time              7-00:00:00
+        #SBATCH --cpus-per-task     2
+        #SBATCH --mem               32g
+        #SBATCH --partition         gpu
+        #SBATCH --gres              gpu:1
+        #SBATCH --mail-type         FAIL
+        #SBATCH --mail-user         {mail_user[0]}
+        #SBATCH --output            {batch.script_file}.%j.out
+        #SBATCH --job-name          eldorado-basecalling-{batch.run.metadata.library_pool_id}-{batch.batch_id}
         
         set -eu
         # Trap all lock files
@@ -224,12 +224,16 @@ def submit_basecalling_batch_to_slurm(
         # Log start time
         START=$(date '+%Y-%m-%d %H:%M:%S')
         START_S=$(date '+%s')
+        
+        # Create working directory
+        OUTDIR="{batch.working_dir}"
+        mkdir -p "$OUTDIR"
 
         # Create temp bam on scratch
-        TEMP_BAM_FILE="$TEMPDIR/out.bam"
+        TEMP_BAM_FILE="$OUTDIR/tmp.bam.$SLURM_JOB_ID"
 
-        # Create pod5 dir on scratch
-        POD5_DIR_TEMP="$TEMPDIR/pod5"
+        # Create pod5 tmp dir 
+        POD5_DIR_TEMP="$OUTDIR/pod5"
         mkdir -p $POD5_DIR_TEMP
         
         # Link pod5 files to scratch
@@ -248,7 +252,6 @@ def submit_basecalling_batch_to_slurm(
         > ${{TEMP_BAM_FILE}}
 
         # Move temp file to output 
-        mkdir -p $(dirname {batch.output_bam})
         mv ${{TEMP_BAM_FILE}} {batch.output_bam}
 
         # Log end time
@@ -257,8 +260,8 @@ def submit_basecalling_batch_to_slurm(
         RUNTIME=$((END_S-START_S))
 
         # Get size of input and output
-        POD5_SIZE=$(du -sL {pod5_files_str} | cut -f1)
-        POD5_COUNT=$(ls -1 {pod5_files_str} | grep ".pod5" | wc -l)
+        POD5_SIZE=$(du -sL $POD5_DIR_TEMP | cut -f1)
+        POD5_FILE_COUNT={len(batch.pod5_files)}
         OUTPUT_BAM_SIZE=$(du -sL {batch.output_bam} | cut -f1)
         BAM_READ_COUNT=$(samtools view -c {batch.output_bam})
 
@@ -266,7 +269,7 @@ def submit_basecalling_batch_to_slurm(
         LOG_FILE={batch.log_file}
         echo "slurm_job_id=$SLURM_JOB_ID" >> ${{LOG_FILE}}
         echo "pod5_size=$POD5_SIZE" >> ${{LOG_FILE}}
-        echo "pod5_count=$POD5_COUNT" >> ${{LOG_FILE}}
+        echo "pod5_file_count=$POD5_FILE_COUNT" >> ${{LOG_FILE}}
         echo "output_bam={batch.output_bam}" >> ${{LOG_FILE}}
         echo "output_bam_size=$OUTPUT_BAM_SIZE" >> ${{LOG_FILE}}
         echo "bam_read_count=$BAM_READ_COUNT" >> ${{LOG_FILE}}
@@ -289,6 +292,9 @@ def submit_basecalling_batch_to_slurm(
         done    
 
     """
+
+    # Remove indent whitespace
+    slurm_script = textwrap.dedent(slurm_script)
 
     # Write Slurm script to a file
     logger.info("Writing script to %s", str(batch.script_file))

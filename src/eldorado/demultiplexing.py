@@ -1,4 +1,7 @@
 import subprocess
+import textwrap
+
+from typing import List
 
 from pathlib import Path
 
@@ -12,7 +15,7 @@ def submit_demux_to_slurm(
     run: SequencingRun,
     sample_sheet: Path,
     dry_run: bool,
-    mail_user: str,
+    mail_user: List[str],
 ):
 
     # Get configuration
@@ -20,38 +23,48 @@ def submit_demux_to_slurm(
 
     # Construct SLURM job script
     slurm_script = f"""\
-#!/bin/bash
-#SBATCH --account           MomaDiagnosticsHg38
-#SBATCH --time              12:00:00
-#SBATCH --cpus-per-task     16
-#SBATCH --mem               128g
-#SBATCH --mail-type         FAIL,END
-#SBATCH --mail-user         {mail_user}
-#SBATCH --output            {run.demux_script_file}.%j.out
-#SBATCH --job-name          eldorado-demux-{run.metadata.library_pool_id}
+        #!/bin/bash
+        #SBATCH --account           MomaDiagnosticsHg38
+        #SBATCH --time              12:00:00
+        #SBATCH --cpus-per-task     16
+        #SBATCH --mem               128g
+        #SBATCH --mail-type         FAIL
+        #SBATCH --mail-user         {mail_user[0]}
+        #SBATCH --output            {run.demux_script_file}.%j.out
+        #SBATCH --job-name          eldorado-demux-{run.metadata.library_pool_id}
 
         set -eu
 
         # Make sure .lock is removed when job is done
         trap 'rm {run.demux_lock_file}' EXIT
+
+        # Create output directory
+        OUTDIR="{run.demux_working_dir}"
+        mkdir -p "$OUTDIR"
+
+        # Create temp bam on scratch
+        TMPDIR="$OUTDIR/tmp.$SLURM_JOB_ID"
+        mkdir -p "$TMPDIR"
         
         # Run demux
         {dorado_executable} demux \\
-            --verbose \\
             --no-trim \\
             --sample-sheet {sample_sheet} \\
             --kit-name {run.metadata.sequencing_kit} \\
             --threads 0 \\
-            --output-dir ${{TEMPDIR}} \\
+            --output-dir ${{TMPDIR}} \\
             {run.merged_bam}
 
         # Move output files from temp dir to output 
-        mv ${{TEMPDIR}}/*.bam {run.output_dir}
+        mv ${{TMPDIR}}/*.bam {run.demux_working_dir}
 
         # Create done file
         touch {run.demux_done_file}
 
     """
+
+    # Remove indent whitespace
+    slurm_script = textwrap.dedent(slurm_script)
 
     # Write Slurm script to a file
     logger.info("Writing script to %s", str(run.demux_script_file))
@@ -63,7 +76,7 @@ def submit_demux_to_slurm(
 
     # Submit the job using Slurm
     std_out = subprocess.run(
-        ["sbatch", str(run.demux_script_file)],
+        ["sbatch", "--parsable", str(run.demux_script_file)],
         capture_output=True,
         check=True,
     )
@@ -91,7 +104,7 @@ def demultiplexing_is_pending(run: SequencingRun) -> bool:
 
 def process_demultiplexing(
     run: SequencingRun,
-    mail_user: str,
+    mail_user: List[str],
     dry_run: bool,
 ):
     sample_sheet = run.get_sample_sheet_path()
@@ -116,8 +129,8 @@ def process_demultiplexing(
         logger.info("Skipping demultiplexing and using merged BAM file as final output.")
 
         # Move merged BAM file to output dir. Use library pool ID as filename
-        run.output_dir.mkdir(parents=True, exist_ok=True)
-        run.merged_bam.rename(run.output_dir / f"{run.metadata.library_pool_id}.bam")
+        run.demux_working_dir.mkdir(parents=True, exist_ok=True)
+        run.merged_bam.rename(run.demux_working_dir / f"{run.metadata.library_pool_id}.bam")
 
         # Create done file
         run.demux_done_file.parent.mkdir(parents=True, exist_ok=True)
@@ -152,7 +165,7 @@ def cleanup_demultiplexing_lock_files(pod5_dir: SequencingRun):
 
     # Return if job is still in queue
     if pod5_dir.demux_job_id_file.exists():
-        job_id = pod5_dir.merge_job_id_file.read_text().strip()
+        job_id = pod5_dir.demux_job_id_file.read_text().strip()
         if is_in_queue(job_id):
             return
 

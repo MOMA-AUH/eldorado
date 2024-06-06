@@ -1,5 +1,7 @@
 from typing import List, Generator
 
+import textwrap
+
 import subprocess
 import csv
 
@@ -12,14 +14,23 @@ from eldorado.logging_config import logger
 
 
 def needs_cleanup(run: SequencingRun) -> bool:
-    return run.demux_done_file.exists() and any(run.output_dir.glob("*.bam"))
+    return run.demux_done_file.exists()
 
 
-def cleanup_output_dir(run: SequencingRun) -> None:
+def cleanup_output_dir(
+    run: SequencingRun,
+    mail_user: List[str],
+) -> None:
+
+    # Move demultiplexed bam files to output directory
+    demuxed_bam_files = run.demux_working_dir.glob("*.bam")
+    for bam_file in demuxed_bam_files:
+        subprocess.run(["mv", str(bam_file), str(run.output_dir)], check=True)
+        logger.info("Moved %s to %s", bam_file, run.output_dir)
 
     # Concatenate batch log files from done batches to a single csv file
-    batch_dirs = get_done_batch_dirs(run)
-    log_files = [log_file for batch_dir in batch_dirs for log_file in batch_dir.glob(BATCH_LOG)]
+    done_batch_dirs = get_done_batch_dirs(run)
+    log_files = [log_file for batch_dir in done_batch_dirs for log_file in batch_dir.glob(BATCH_LOG)]
     log_dicts = load_logs_as_dicts(log_files)
     generate_final_log_csv(run.basecalling_summary, log_dicts)
     logger.info("Generated final log CSV file %s", run.basecalling_summary)
@@ -32,8 +43,15 @@ def cleanup_output_dir(run: SequencingRun) -> None:
 
     # Clean up of demultiplexing
     subprocess.run(["rm", "-rf", str(run.demux_working_dir)], check=True)
-
     logger.info("Removed working directories")
+
+    # Send email
+    send_email(
+        recipients=mail_user,
+        sample_id=run.metadata.library_pool_id,
+        output_path=run.output_dir,
+    )
+    logger.info("Sent email to %s", mail_user)
 
 
 def generate_final_log_csv(csv_file: Path, logs: List[dict]):
@@ -57,3 +75,29 @@ def load_logs_as_dicts(log_files: List[Path] | Generator[Path, None, None]):
                 log_dict[key] = value
             dict_list.append(log_dict)
     return dict_list
+
+
+def send_email(recipients: List[str], sample_id: str, output_path: Path) -> None:
+
+    # Construct the email
+    email_text = f"""\
+        To: {", ".join(recipients)}
+        Subject: Eldorado notification: Sample {sample_id} completed
+
+        Hi, 
+
+        The sample {sample_id} completed basecalling.
+        The data is available at: {str(output_path)}
+
+        Have a nice day!
+
+        Kind regards,
+        Eldorado
+    """
+
+    # Dedent the email text ie. remove leading whitespace per line
+    email_text = textwrap.dedent(email_text)
+
+    # Use subprocess to send the email
+    process = subprocess.Popen(["sendmail", "-t"], stdin=subprocess.PIPE)
+    process.communicate(email_text.encode("utf-8"))

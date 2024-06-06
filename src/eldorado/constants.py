@@ -1,4 +1,5 @@
-MIN_TIME = 30 * 60  # 30 minutes
+# MIN_TIME = 30 * 60  # 30 minutes
+MIN_TIME = 0  # 30 minutes
 
 # Fields:
 PROJECT_ID = "project_id"

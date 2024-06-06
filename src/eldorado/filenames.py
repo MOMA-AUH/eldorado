@@ -3,7 +3,7 @@
 # Sequencing run
 # General
 OUTPUT_DIR_SUFFIX = "_eldorado"
-BASECALLING_SUMMARY = "basecalling_summary.txt"
+BASECALLING_SUMMARY = "basecalling_summary.csv"
 
 # Dorado config
 DORADO_CONFIG = "dorado_config.json"
@@ -15,7 +15,7 @@ BC_LOCK_DIR = "lock_files"
 BC_DONE_DIR = "done_files"
 
 # Batches
-BATCH_LOG = "basecalled.log"
+BATCH_LOG = "basecalled.txt"
 BATCH_BAM = "basecalled.bam"
 BATCH_DONE = "batch.done"
 BATCH_JOB_ID = "batch_job_id.txt"

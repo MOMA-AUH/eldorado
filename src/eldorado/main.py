@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import typer
-from typing_extensions import Annotated
+from typing_extensions import Annotated, Optional, List
 
 from eldorado.basecalling import process_unbasecalled_pod5_files, basecalling_is_pending, cleanup_basecalling_lock_files, SequencingRun
 from eldorado.merging import merging_is_pending, submit_merging_to_slurm, cleanup_merge_lock_files
@@ -54,6 +54,14 @@ def scheduler(
             resolve_path=True,
         ),
     ],
+    mail_user: Annotated[
+        List[str],
+        typer.Option(
+            "--mail-user",
+            "-u",
+            help="Email address for notifications. This can be used multiple times. Note that only the first email address will be used for Slurm notifications.",
+        ),
+    ],
     min_batch_size: Annotated[
         int,
         typer.Option(
@@ -63,7 +71,7 @@ def scheduler(
         ),
     ] = 1,
     log_file: Annotated[
-        Path | None,
+        Optional[Path],
         typer.Option(
             "--log-file",
             "-l",
@@ -74,14 +82,6 @@ def scheduler(
             resolve_path=True,
         ),
     ] = None,
-    mail_user: Annotated[
-        str,
-        typer.Option(
-            "--mail-user",
-            "-u",
-            help="Email address for notifications",
-        ),
-    ] = "",
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -172,8 +172,16 @@ def manual_run(
             resolve_path=True,
         ),
     ],
+    mail_user: Annotated[
+        List[str],
+        typer.Option(
+            "--mail-user",
+            "-u",
+            help="Email address for notifications. This can be used multiple times. Note that only the first email address will be used for Slurm notifications.",
+        ),
+    ],
     basecalling_model: Annotated[
-        Path | None,
+        Optional[Path],
         typer.Option(
             "--basecalling-model",
             "-b",
@@ -246,14 +254,6 @@ def manual_run(
             help="Run cleanup",
         ),
     ] = False,
-    mail_user: Annotated[
-        str,
-        typer.Option(
-            "--mail-user",
-            "-u",
-            help="Email address for notifications",
-        ),
-    ] = "",
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -319,7 +319,7 @@ def process_sequencing_run(
     run_merging: bool,
     run_demultiplexing: bool,
     run_cleanup: bool,
-    mail_user: str,
+    mail_user: List[str],
     dry_run: bool,
 ):
     logger.info("Processing %s", str(run.pod5_dir))
@@ -373,7 +373,10 @@ def process_sequencing_run(
     # Cleanup
     elif run_cleanup and needs_cleanup(run):
         logger.info("Finalizing output...")
-        cleanup_output_dir(run)
+        cleanup_output_dir(
+            run=run,
+            mail_user=mail_user,
+        )
     else:
         logger.info("Nothing to do...")
 

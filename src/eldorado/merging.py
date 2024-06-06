@@ -1,4 +1,7 @@
 import subprocess
+import textwrap
+
+from typing import List
 
 from pathlib import Path
 
@@ -24,7 +27,7 @@ def cleanup_merge_lock_files(pod5_dir: SequencingRun):
 
 def submit_merging_to_slurm(
     run: SequencingRun,
-    mail_user: str,
+    mail_user: List[str],
     dry_run: bool,
 ) -> None:
 
@@ -35,15 +38,15 @@ def submit_merging_to_slurm(
     # Construct SLURM job script
     cores = 4
     slurm_script = f"""\
-#!/bin/bash
-#SBATCH --account           MomaDiagnosticsHg38
-#SBATCH --time              12:00:00
-#SBATCH --cpus-per-task     {cores}
-#SBATCH --mem               32g
-#SBATCH --mail-type         FAIL
-#SBATCH --mail-user         {mail_user}
-#SBATCH --output            {run.merge_script_file}.%j.out
-#SBATCH --job-name          eldorado-merge-{run.metadata.library_pool_id}
+        #!/bin/bash
+        #SBATCH --account           MomaDiagnosticsHg38
+        #SBATCH --time              12:00:00
+        #SBATCH --cpus-per-task     {cores}
+        #SBATCH --mem               32g
+        #SBATCH --mail-type         FAIL
+        #SBATCH --mail-user         {mail_user[0]}
+        #SBATCH --output            {run.merge_script_file}.%j.out
+        #SBATCH --job-name          eldorado-merge-{run.metadata.library_pool_id}
 
         set -eu
         
@@ -51,11 +54,11 @@ def submit_merging_to_slurm(
         trap 'rm -f {run.merge_lock_file}' EXIT
 
         # Create output directory
-        OUTDIR=$(dirname {run.merged_bam})
-        mkdir -p $OUTDIR
+        OUTDIR="{run.merging_working_dir}"
+        mkdir -p "$OUTDIR"
 
         # Create temp bam on scratch
-        TEMP_BAM_FILE="$TEMPDIR/out.bam"
+        TEMP_BAM_FILE="$OUTDIR/tmp.bam.$SLURM_JOB_ID"
 
         # Run merge
         samtools merge \\
@@ -70,6 +73,9 @@ def submit_merging_to_slurm(
         touch {run.merge_done_file}
 
     """
+
+    # Remove indent whitespace
+    slurm_script = textwrap.dedent(slurm_script)
 
     # Write Slurm script to a file
     logger.info("Writing script to %s", str(run.merge_script_file))
