@@ -86,8 +86,13 @@ def send_email(recipients: List[str], sample_id: str, output_path: Path) -> None
 
         Hi, 
 
-        The sample {sample_id} completed basecalling.
-        The data is available at: {str(output_path)}
+        The following sample completed basecalling:
+        
+        {sample_id}
+
+        The data is available at: 
+        
+        {output_path}
 
         Have a nice day!
 

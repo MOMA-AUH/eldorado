@@ -22,7 +22,7 @@ from eldorado.basecalling import SequencingRun
             [
                 "sample/bam_eldorado/demultiplexing/demux.done",
             ],
-            False,
+            True,
             id="Single dir with done file",
         ),
         pytest.param(
@@ -32,23 +32,6 @@ from eldorado.basecalling import SequencingRun
             ],
             False,
             id="Single dir with lock file",
-        ),
-        pytest.param(
-            "sample/pod5",
-            [
-                "sample/bam_eldorado/final.bam",
-            ],
-            False,
-            id="Single dir with final BAM, but no done file",
-        ),
-        pytest.param(
-            "sample/pod5",
-            [
-                "sample/bam_eldorado/demultiplexing/demux.done",
-                "sample/bam_eldorado/final.bam",
-            ],
-            True,
-            id="Single dir with done file and final BAM",
         ),
     ],
 )

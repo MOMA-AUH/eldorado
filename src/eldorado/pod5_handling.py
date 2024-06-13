@@ -107,7 +107,7 @@ class SequencingRun:
     def get_final_summary(self) -> Path | None:
         return next(self.pod5_dir.parent.glob("final_summary*.txt"), None)
 
-    def get_sample_sheet_path(self) -> Path | None:
+    def get_sample_sheet(self) -> Path | None:
         return next(self.pod5_dir.parent.glob("sample_sheet*.csv"), None)
 
     def all_pod5_files_are_transferred(self) -> bool:
