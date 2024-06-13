@@ -2,10 +2,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Generator
 
-import time
+from os import SEEK_END
+
 import re
 
-from eldorado.constants import MIN_TIME
 from eldorado.configuration import Metadata, get_metadata, Config
 import eldorado.filenames as fn
 
@@ -95,8 +95,8 @@ class SequencingRun:
         # Get all pod5 files
         pod5_files = self.pod5_dir.glob("*.pod5")
 
-        # Return only files that have been inactive for min_time
-        return (pod5 for pod5 in pod5_files if is_file_inactive(pod5, MIN_TIME))
+        # Return only files that are complete
+        return (pod5 for pod5 in pod5_files if is_complete_pod5_file(pod5))
 
     def get_lock_files(self) -> List[Path]:
         return list(self.basecalling_lock_files_dir.glob("*.lock"))
@@ -148,9 +148,19 @@ class SequencingRun:
         return [pod5 for pod5 in pod5_files if f"{pod5.name}.lock" not in lock_files_names and f"{pod5.name}.done" not in done_files_names]
 
 
-def is_file_inactive(file: Path, min_time: int) -> bool:
-    time_since_data_last_modified = time.time() - file.stat().st_mtime
-    return time_since_data_last_modified > min_time
+def is_complete_pod5_file(path: Path) -> bool:
+    PATTERN = bytes((0x8B, 0x50, 0x4F, 0x44, 0xD, 0xA, 0x1A, 0x0A))
+    with open(path, "rb") as f:
+        # Pod5 docs: https://pod5-file-format.readthedocs.io/en/latest/SPECIFICATION.html#combined-file-layout
+        # Check if the file starts with the pattern
+        header = f.read(len(PATTERN))
+        if header != PATTERN:
+            return False
+
+        # Check if the file ends with the pattern
+        f.seek(-len(PATTERN), SEEK_END)
+        footer = f.read()
+        return footer == PATTERN
 
 
 def find_sequencning_runs_for_processing(root_dir: Path, pattern: str) -> List[SequencingRun]:

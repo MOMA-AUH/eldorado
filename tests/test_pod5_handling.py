@@ -6,27 +6,8 @@ from typing import List
 import pytest
 
 from eldorado import pod5_handling
-from eldorado.pod5_handling import SequencingRun, is_file_inactive, needs_basecalling, contains_pod5_files, get_pod5_dirs_from_pattern
+from eldorado.pod5_handling import SequencingRun, is_complete_pod5_file, needs_basecalling, contains_pod5_files, get_pod5_dirs_from_pattern
 from tests.test_utils import create_files
-
-
-@pytest.mark.parametrize(
-    "time_created, time_now, min_time, expected",
-    [
-        pytest.param(0, 6, 5, True, id="done"),
-        pytest.param(0, 4, 5, False, id="not_done"),
-    ],
-)
-def test_is_file_inactive(monkeypatch, time_created, time_now, min_time, expected):
-    # Arrange
-    monkeypatch.setattr(pod5_handling.time, "time", lambda *args, **kwargs: time_now)
-    monkeypatch.setattr(pod5_handling.Path, "stat", lambda *args, **kwargs: MagicMock(st_mtime=time_created))
-
-    # Act
-    result = is_file_inactive(Path("file"), min_time)
-
-    # Assert
-    assert result == expected
 
 
 @pytest.mark.usefixtures("mock_pod5_internals")
@@ -394,3 +375,34 @@ def test_get_unbasecalled_pod5_files(tmp_path, pod5_files, lock_files, done_file
 
     # Assert
     assert set(unbasecalled_files) == set(expected)
+
+
+@pytest.mark.parametrize(
+    "file_content, expected",
+    [
+        pytest.param(
+            b"\x8BPOD\r\n\x1A\n",
+            True,
+            id="valid_pod5_file",
+        ),
+        pytest.param(
+            b"\x8BPOD\r\n\x1A",
+            False,
+            id="incomplete_pod5_file",
+        ),
+        pytest.param(
+            b"\x8BPOD\r\n",
+            False,
+            id="missing_eof",
+        ),
+    ],
+)
+def test_is_complete_pod5_file(tmp_path, file_content, expected):
+    # Arrange
+    file_path = tmp_path / "file.pod5"
+    with open(file_path, "wb") as f:
+        f.write(file_content)
+    # Act
+    result = is_complete_pod5_file(file_path)
+    # Assert
+    assert result == expected
