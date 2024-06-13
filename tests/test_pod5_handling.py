@@ -273,6 +273,30 @@ def test_contains_pod5_files(tmp_path, pod5_files, expected):
             False,
             id="suffix_in_fastq_dir_name",
         ),
+        pytest.param(
+            ["pod5_suffix/file.pod5"],
+            [],
+            True,
+            id="suffix_in_pod5_dir_name",
+        ),
+        pytest.param(
+            ["pod5_suffix/file.pod5"],
+            ["bam_suffix/file.bam"],
+            False,
+            id="suffix_in_pod5_dir_name_and_bam_dir_name",
+        ),
+        pytest.param(
+            ["pod5_suffix/file.pod5"],
+            ["fastq_suffix/file.fastq"],
+            False,
+            id="suffix_in_pod5_dir_name_and_fastq_dir_name",
+        ),
+        pytest.param(
+            ["pod5_suffix/file.pod5"],
+            ["bam_other_suffix/file.bam"],
+            True,
+            id="Different suffixes",
+        ),
     ],
 )
 def test_needs_basecalling(tmp_path, pod5_files, other_files, expected):

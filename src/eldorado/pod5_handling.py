@@ -173,7 +173,15 @@ def get_pod5_dirs_from_pattern(root_dir: Path, pattern: str) -> List[Path]:
 
 
 def needs_basecalling(pod5_dir: Path) -> bool:
-    return not any(pod5_dir.parent.glob("bam*/*.bam")) and not any(pod5_dir.parent.glob("fastq*/*.fastq*"))
+    # Get the prefix for the bam and fastq directories i.e. pod5_pass -> bam_pass, fastq_pass
+    bam_dir_prefix = pod5_dir.name.replace("pod5", "bam")
+    fastq_dir_prefix = pod5_dir.name.replace("pod5", "fastq")
+
+    # Check if any bam or fastq files already exist
+    any_existing_bam_files = any(pod5_dir.parent.glob(f"{bam_dir_prefix}*/*.bam"))
+    any_existing_fastq_files = any(pod5_dir.parent.glob(f"{fastq_dir_prefix}*/*.fastq*"))
+
+    return not any_existing_bam_files and not any_existing_fastq_files
 
 
 def contains_pod5_files(x: Path) -> bool:
