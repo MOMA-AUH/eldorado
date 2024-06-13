@@ -17,6 +17,12 @@ def submit_demux_to_slurm(
     dry_run: bool,
     mail_user: List[str],
 ):
+    # Handle sample sheet without alias and barcode
+    if sample_sheet_has_alias_and_barcode(sample_sheet):
+        sample_sheet_option = f"--sample-sheet {sample_sheet}"
+    else:
+        logger.warning("Sample sheet %s does not have 'alias' and 'barcode' columns. Ignoring sample sheet.", sample_sheet)
+        sample_sheet_option = ""
 
     # Get configuration
     dorado_executable = run.config.dorado_executable
@@ -49,7 +55,7 @@ def submit_demux_to_slurm(
         # Run demux
         {dorado_executable} demux \\
             --no-trim \\
-            --sample-sheet {sample_sheet} \\
+            {sample_sheet_option} \\
             --kit-name {run.metadata.sequencing_kit} \\
             --threads 0 \\
             --output-dir ${{TMPDIR}} \\
@@ -107,25 +113,9 @@ def process_demultiplexing(
     mail_user: List[str],
     dry_run: bool,
 ):
-    sample_sheet = run.get_sample_sheet_path()
-
-    # Check if sample sheet exists
-    if sample_sheet is None:
-        logger.error("Sample sheet not found for %s. Skipping demultiplexing.", run.pod5_dir)
-        return
-
-    # Check if demultiplexing should be skipped
-    skip_demultiplexing = False
-    if not sample_sheet_has_alias_and_barcode(sample_sheet):
-        skip_demultiplexing = True
-        logger.error("Sample sheet %s does not have 'alias' and 'barcode' columns.", sample_sheet)
-
+    # Skip demultiplexing if sequencing kit is not a barcoding kit
     if run.metadata.sequencing_kit not in BARCODING_KITS:
-        skip_demultiplexing = True
         logger.info("Kit %s is not a barcoding kit.", run.metadata.sequencing_kit)
-
-    # Check if demultiplexing should be skipped
-    if skip_demultiplexing:
         logger.info("Skipping demultiplexing and using merged BAM file as final output.")
 
         # Move merged BAM file to output dir. Use library pool ID as filename
@@ -135,6 +125,12 @@ def process_demultiplexing(
         # Create done file
         run.demux_done_file.parent.mkdir(parents=True, exist_ok=True)
         run.demux_done_file.touch()
+        return
+
+    # Get sample sheet
+    sample_sheet = run.get_sample_sheet()
+    if sample_sheet is None:
+        logger.error("Sample sheet not found for %s. Waiting for sample sheet to be uploaded.", run.metadata.library_pool_id)
         return
 
     # Submit job to Slurm
