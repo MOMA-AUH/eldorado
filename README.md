@@ -19,7 +19,7 @@ To get started with Eldorado, you need to install the package on your local mach
 
     # Build the package
     LOCAL_REPO="/path/to/local/conda/repository"
-    conda build $BUILD_DIR --output-folder $LOCAL_REPO
+    conda build $BUILD_DIR --output-folder $LOCAL_REPO -c jannessp
 
     # Clean up
     conda build purge
@@ -28,8 +28,9 @@ To get started with Eldorado, you need to install the package on your local mach
 2. Create a new conda environment:
     ```sh
     ENV_NAME="eldorado-env"
-    conda create -n $ENV_NAME -c bioconda -c conda-forge -c $LOCAL_REPO eldorado
+    conda create -n $ENV_NAME -c bioconda -c conda-forge -c jannessp -c $LOCAL_REPO eldorado
     ```
+    Note that the `-c` flags specify the channels to search for the package. The `bioconda` and `conda-forge` channels are required for the `samtools` dependency, and the `jannessp` channel is required for the `pod5` package.
 3. Eldorado is now installed in your local conda environment. You can start using it by following the instructions in the [Usage](#usage) section.
 
 
