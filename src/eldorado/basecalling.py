@@ -129,6 +129,7 @@ def process_unbasecalled_pod5_files(
     run: SequencingRun,
     min_batch_size: int,
     mail_user: List[str],
+    slurm_account: str,
     dry_run: bool,
 ):
 
@@ -148,6 +149,7 @@ def process_unbasecalled_pod5_files(
     submit_basecalling_batch_to_slurm(
         batch=batch,
         mail_user=mail_user,
+        slrum_account=slurm_account,
         dry_run=dry_run,
     )
 
@@ -183,6 +185,7 @@ def has_unbasecalled_pod5_files(pod5_dir: SequencingRun) -> bool:
 
 def submit_basecalling_batch_to_slurm(
     batch: BasecallingBatch,
+    slrum_account: str,
     mail_user: List[str],
     dry_run: bool,
 ):
@@ -205,7 +208,7 @@ def submit_basecalling_batch_to_slurm(
 
     slurm_script = f"""\
         #!/bin/bash
-        #SBATCH --account           MomaDiagnosticsHg38
+        #SBATCH --account           {slrum_account}
         #SBATCH --time              7-00:00:00
         #SBATCH --cpus-per-task     2
         #SBATCH --mem               32g

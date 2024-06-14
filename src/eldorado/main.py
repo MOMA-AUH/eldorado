@@ -62,6 +62,14 @@ def scheduler(
             help="Email address for notifications. This can be used multiple times. Note that only the first email address will be used for Slurm notifications.",
         ),
     ],
+    slurm_account: Annotated[
+        str,
+        typer.Option(
+            "--slurm-account",
+            "-a",
+            help="Slurm account",
+        ),
+    ],
     min_batch_size: Annotated[
         int,
         typer.Option(
@@ -129,6 +137,7 @@ def scheduler(
                 run_demultiplexing=True,
                 run_cleanup=True,
                 mail_user=mail_user,
+                slurm_account=slurm_account,
                 dry_run=dry_run,
             )
 
@@ -178,6 +187,14 @@ def manual_run(
             "--mail-user",
             "-u",
             help="Email address for notifications. This can be used multiple times. Note that only the first email address will be used for Slurm notifications.",
+        ),
+    ],
+    slurm_account: Annotated[
+        str,
+        typer.Option(
+            "--slurm-account",
+            "-a",
+            help="Slurm account",
         ),
     ],
     basecalling_model: Annotated[
@@ -303,6 +320,7 @@ def manual_run(
         run_demultiplexing=run_demultiplexing,
         run_cleanup=run_cleanup,
         mail_user=mail_user,
+        slurm_account=slurm_account,
         dry_run=dry_run,
     )
 
@@ -320,6 +338,7 @@ def process_sequencing_run(
     run_demultiplexing: bool,
     run_cleanup: bool,
     mail_user: List[str],
+    slurm_account: str,
     dry_run: bool,
 ):
     logger.info("Processing %s", str(run.pod5_dir))
@@ -352,6 +371,7 @@ def process_sequencing_run(
             run=run,
             min_batch_size=min_batch_size,
             mail_user=mail_user,
+            slurm_account=slurm_account,
             dry_run=dry_run,
         )
     # Merging
@@ -360,6 +380,7 @@ def process_sequencing_run(
         submit_merging_to_slurm(
             run,
             mail_user=mail_user,
+            slurm_account=slurm_account,
             dry_run=dry_run,
         )
     # Demultiplexing
@@ -368,6 +389,7 @@ def process_sequencing_run(
         process_demultiplexing(
             run=run,
             mail_user=mail_user,
+            slurm_account=slurm_account,
             dry_run=dry_run,
         )
     # Cleanup

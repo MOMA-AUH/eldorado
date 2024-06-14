@@ -28,6 +28,7 @@ def cleanup_merge_lock_files(pod5_dir: SequencingRun):
 def submit_merging_to_slurm(
     run: SequencingRun,
     mail_user: List[str],
+    slurm_account: str,
     dry_run: bool,
 ) -> None:
 
@@ -39,7 +40,7 @@ def submit_merging_to_slurm(
     cores = 4
     slurm_script = f"""\
         #!/bin/bash
-        #SBATCH --account           MomaDiagnosticsHg38
+        #SBATCH --account           {slurm_account}
         #SBATCH --time              12:00:00
         #SBATCH --cpus-per-task     {cores}
         #SBATCH --mem               32g

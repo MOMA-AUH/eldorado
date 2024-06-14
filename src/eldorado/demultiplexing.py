@@ -15,6 +15,7 @@ def submit_demux_to_slurm(
     run: SequencingRun,
     sample_sheet: Path,
     dry_run: bool,
+    slrum_account: str,
     mail_user: List[str],
 ):
     # Handle sample sheet without alias and barcode
@@ -30,7 +31,7 @@ def submit_demux_to_slurm(
     # Construct SLURM job script
     slurm_script = f"""\
         #!/bin/bash
-        #SBATCH --account           MomaDiagnosticsHg38
+        #SBATCH --account           {slrum_account}
         #SBATCH --time              12:00:00
         #SBATCH --cpus-per-task     16
         #SBATCH --mem               128g
@@ -111,6 +112,7 @@ def demultiplexing_is_pending(run: SequencingRun) -> bool:
 def process_demultiplexing(
     run: SequencingRun,
     mail_user: List[str],
+    slurm_account: str,
     dry_run: bool,
 ):
     # Skip demultiplexing if sequencing kit is not a barcoding kit
@@ -139,6 +141,7 @@ def process_demultiplexing(
         sample_sheet=sample_sheet,
         dry_run=dry_run,
         mail_user=mail_user,
+        slrum_account=slurm_account,
     )
 
 
