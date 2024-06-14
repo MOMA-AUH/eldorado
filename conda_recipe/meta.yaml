@@ -19,8 +19,12 @@ requirements:
   build:
     - python
     - setuptools
+    - pytest
     - pip
     - git
   run:
     - python>=3.10
     - samtools>=1.17
+    - typer>=0.9.0
+    - pod5
+    - pytest
