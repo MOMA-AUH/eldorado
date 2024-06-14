@@ -11,14 +11,14 @@ To get started with Eldorado, you need to install the package on your local mach
 1. In the `conda_recipe` directory use the `meta.yaml` file to build the package with `conda build`:
     ```sh 
     # Build directory
-    BUILD_DIR="/path/to/local/conda/repo/"
+    BUILD_DIR="/path/to/build/directory"
     cd $BUILD_DIR
 
     # Download the meta.yaml file
-    curl -O https://raw.githubusercontent.com/MOMA-AUH/eldorado/main/conda_recipe/meta.yaml
+    curl -O https://raw.githubusercontent.com/MOMA-AUH/eldorado/master/conda_recipe/meta.yaml
 
     # Build the package
-    LOCAL_REPO="/path/to/local/conda/repo/"
+    LOCAL_REPO="/path/to/local/conda/repository"
     conda build $BUILD_DIR --output-folder $LOCAL_REPO
 
     # Clean up
@@ -27,25 +27,10 @@ To get started with Eldorado, you need to install the package on your local mach
 
 2. Create a new conda environment:
     ```sh
-    conda create -n eldorado-env
+    ENV_NAME="eldorado-env"
+    conda create -n $ENV_NAME -c $LOCAL_REPO eldorado
     ```
-3. Activate the conda environment:
-    ```sh
-    conda activate eldorado-env
-    ```
-4. Install the package in the new conda environment:
-    ```sh
-    conda install -c /path/to/local/conda/repo/ eldorado
-    ```
-5. Install the package dependencies:
-    ```sh
-    conda install -c conda-forge -c bioconda -c defaults --file /path/to/local/conda/repo/conda_build_scripts/conda_requirements.txt
-    ```
-3. Activate the conda environment:
-    ```sh
-    conda activate eldorado-env
-    ```
-4. Eldorado is now installed in your local conda environment. You can start using it by following the instructions in the [Usage](#usage) section.
+3. Eldorado is now installed in your local conda environment. You can start using it by following the instructions in the [Usage](#usage) section.
 
 
 ### Installation from local repository

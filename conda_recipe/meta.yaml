@@ -23,4 +23,4 @@ requirements:
     - git
   run:
     - python>=3.10
-    - samtools=>1.17
+    - samtools>=1.17
