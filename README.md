@@ -28,7 +28,7 @@ To get started with Eldorado, you need to install the package on your local mach
 2. Create a new conda environment:
     ```sh
     ENV_NAME="eldorado-env"
-    conda create -n $ENV_NAME -c $LOCAL_REPO eldorado
+    conda create -n $ENV_NAME -c bioconda -c conda-forge -c $LOCAL_REPO eldorado
     ```
 3. Eldorado is now installed in your local conda environment. You can start using it by following the instructions in the [Usage](#usage) section.
 
