@@ -19,14 +19,10 @@ def submit_demux_to_slurm(
     mail_user: List[str],
 ):
     # Handle sample sheet without alias and barcode
-    if sample_sheet_has_alias_and_barcode(sample_sheet):
+    if sample_sheet_is_valid(sample_sheet):
         sample_sheet_option = f"--sample-sheet {sample_sheet}"
     else:
-        logger.warning("Sample sheet %s does not have 'alias' and 'barcode' columns. Ignoring sample sheet.", sample_sheet)
         sample_sheet_option = ""
-
-    # Get configuration
-    dorado_executable = run.config.dorado_executable
 
     # Construct SLURM job script
     slurm_script = f"""\
@@ -54,7 +50,7 @@ def submit_demux_to_slurm(
         mkdir -p "$TMPDIR"
         
         # Run demux
-        {dorado_executable} demux \\
+        {run.config.dorado_executable} demux \\
             --no-trim \\
             {sample_sheet_option} \\
             --kit-name {run.metadata.sequencing_kit} \\
@@ -145,16 +141,35 @@ def process_demultiplexing(
     )
 
 
-def sample_sheet_has_alias_and_barcode(sample_sheet: Path) -> bool:
+def sample_sheet_is_valid(sample_sheet: Path) -> bool:
 
-    # Read first line (header) of sample sheet
+    # Read first line (header) of sample sheet csv
     with open(sample_sheet, "r", encoding="utf-8") as f:
-        header = f.readline()
+        header = f.readline().split(",")
+        header = [field.strip() for field in header]
 
     # Check header has required fields
     # See: https://community.nanoporetech.com/docs/prepare/library_prep_protocols/experiment-companion-minknow/v/mke_1013_v1_revdc_11apr2016/sample-sheet-upload
     required_fields = ["barcode", "alias"]
-    return all(field in header for field in required_fields)
+    if any(field not in header for field in required_fields):
+        logger.warning("Sample sheet %s is missing required fields: %s", sample_sheet, required_fields)
+        return False
+
+    # Check if all entries in alias column are unique and < 40 characters (Error in Dorado if alias is > 40 characters)
+    alias_column_index = header.index("alias")
+    aliases = set()
+    with open(sample_sheet, "r", encoding="utf-8") as f:
+        for line in f:
+            alias = line.split(",")[alias_column_index].strip()
+            if alias in aliases:
+                logger.warning("Duplicate alias (%s) found in sample sheet %s", alias, sample_sheet)
+                return False
+            if len(alias) > 40:
+                logger.warning("Alias (%s) is longer than 40 characters in sample sheet %s", alias, sample_sheet)
+                return False
+            aliases.add(alias)
+
+    return True
 
 
 def cleanup_demultiplexing_lock_files(pod5_dir: SequencingRun):
