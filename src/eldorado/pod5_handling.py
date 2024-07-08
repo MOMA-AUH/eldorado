@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Generator
 
-from os import SEEK_END
+import os
 
 import re
 
@@ -149,18 +149,23 @@ class SequencingRun:
 
 
 def is_complete_pod5_file(path: Path) -> bool:
-    PATTERN = bytes((0x8B, 0x50, 0x4F, 0x44, 0xD, 0xA, 0x1A, 0x0A))
-    with open(path, "rb") as f:
-        # Pod5 docs: https://pod5-file-format.readthedocs.io/en/latest/SPECIFICATION.html#combined-file-layout
+    # Pod5 docs: https://pod5-file-format.readthedocs.io/en/latest/SPECIFICATION.html#combined-file-layout
+    pattern = bytes((0x8B, 0x50, 0x4F, 0x44, 0xD, 0xA, 0x1A, 0x0A))
+    pattern_len = len(pattern)
+
+    fd = os.open(path, os.O_RDONLY)
+    try:
         # Check if the file starts with the pattern
-        header = f.read(len(PATTERN))
-        if header != PATTERN:
+        header = os.read(fd, pattern_len)
+        if header != pattern:
             return False
 
         # Check if the file ends with the pattern
-        f.seek(-len(PATTERN), SEEK_END)
-        footer = f.read()
-        return footer == PATTERN
+        os.lseek(fd, -pattern_len, os.SEEK_END)
+        footer = os.read(fd, pattern_len)
+        return footer == pattern
+    finally:
+        os.close(fd)
 
 
 def find_sequencning_runs_for_processing(root_dir: Path, pattern: str) -> List[SequencingRun]:

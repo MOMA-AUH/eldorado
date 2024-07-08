@@ -395,6 +395,16 @@ def test_get_unbasecalled_pod5_files(tmp_path, pod5_files, lock_files, done_file
             False,
             id="missing_eof",
         ),
+        pytest.param(
+            b"\x8BPOD\r\n\x1A\n\x00\x8BPOD\r\n\x1A\n",
+            True,
+            id="file_with_extra_data",
+        ),
+        pytest.param(
+            b"\x8BPOD\r\n\x1A\n\x00",
+            False,
+            id="incomplete_file_with_extra_data",
+        ),
     ],
 )
 def test_is_complete_pod5_file(tmp_path, file_content, expected):
