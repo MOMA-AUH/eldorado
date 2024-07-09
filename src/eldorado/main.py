@@ -6,7 +6,7 @@ from typing_extensions import Annotated, Optional, List
 from eldorado.basecalling import process_unbasecalled_pod5_files, basecalling_is_pending, cleanup_basecalling_lock_files, SequencingRun
 from eldorado.merging import merging_is_pending, submit_merging_to_slurm, cleanup_merge_lock_files
 from eldorado.cleanup import needs_cleanup, cleanup_output_dir
-from eldorado.logging_config import get_log_file_handler, logger
+from eldorado.logging_config import set_log_file_handler, logger
 from eldorado.demultiplexing import demultiplexing_is_pending, process_demultiplexing, cleanup_demultiplexing_lock_files
 from eldorado.pod5_handling import find_sequencning_runs_for_processing, needs_basecalling, contains_pod5_files
 from eldorado.configuration import get_dorado_config, get_project_configs
@@ -79,7 +79,7 @@ def scheduler(
         ),
     ] = 1,
     log_file: Annotated[
-        Optional[Path],
+        Path,
         typer.Option(
             "--log-file",
             "-l",
@@ -101,9 +101,7 @@ def scheduler(
 ) -> None:
 
     # Setup logging to file
-    if log_file is not None:
-        file_handler = get_log_file_handler(log_file=log_file)
-        logger.addHandler(file_handler)
+    set_log_file_handler(logger, log_file)
 
     # Welcome message
     logger.info("Running Eldorado scheduler...")
@@ -119,6 +117,7 @@ def scheduler(
         # Find pod5 dirs that needs processing (pattern: [project_id]/[sample_id]/[run_id]/pod5*)
         pattern = f"{project_config.project_id}/*/*/pod5*"
         runs = find_sequencning_runs_for_processing(root_dir, pattern)
+
         logger.info("Found %d pod5 dir(s) that needs processing", len(runs))
 
         for run in runs:
@@ -197,6 +196,18 @@ def manual_run(
             help="Slurm account",
         ),
     ],
+    log_file: Annotated[
+        Path,
+        typer.Option(
+            "--log-file",
+            "-l",
+            help="Path to log file",
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
     basecalling_model: Annotated[
         Optional[Path],
         typer.Option(
@@ -231,18 +242,6 @@ def manual_run(
             help="Minimum batch size",
         ),
     ] = 1,
-    log_file: Annotated[
-        Path | None,
-        typer.Option(
-            "--log-file",
-            "-l",
-            help="Path to log file",
-            file_okay=True,
-            dir_okay=False,
-            readable=True,
-            resolve_path=True,
-        ),
-    ] = None,
     run_basecalling: Annotated[
         bool,
         typer.Option(
@@ -289,9 +288,7 @@ def manual_run(
         run_cleanup = True
 
     # Setup logging to file
-    if log_file is not None:
-        file_handler = get_log_file_handler(log_file=log_file)
-        logger.addHandler(file_handler)
+    set_log_file_handler(logger, log_file)
 
     # Welcome message
     logger.info("Running Eldorado...")

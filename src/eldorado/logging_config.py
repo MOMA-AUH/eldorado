@@ -1,4 +1,5 @@
 import logging
+import logging.handlers
 from pathlib import Path
 
 # Formatting
@@ -10,14 +11,10 @@ formatter = logging.Formatter(FORMAT, DATE_FORMAT)
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Add stream handler
-stream_handler = logging.StreamHandler()
-stream_handler.setFormatter(formatter)
-logger.addHandler(stream_handler)
 
-
-# Function to get file handler
-def get_log_file_handler(log_file: Path):
-    file_handler = logging.FileHandler(log_file)
+# Function to set file handler
+def set_log_file_handler(ll: logging.Logger, log_file: Path) -> None:
+    # Create new log file every monday
+    file_handler = logging.handlers.TimedRotatingFileHandler(log_file, when="W0", backupCount=8)
     file_handler.setFormatter(formatter)
-    return file_handler
+    ll.addHandler(file_handler)
