@@ -137,8 +137,7 @@ def process_unbasecalled_pod5_files(
 
     if batch_should_be_skipped(batch, min_batch_size):
         logger.info(
-            "Skipping. Too few pod5 files to basecall (%d<%d).",
-            len(batch.pod5_files),
+            "Skipping. Batch size is less than %d GB",
             min_batch_size,
         )
         return
@@ -154,17 +153,22 @@ def process_unbasecalled_pod5_files(
     )
 
 
-def batch_should_be_skipped(basecalling_batch: BasecallingBatch, min_batch_size: int) -> bool:
+def batch_should_be_skipped(basecalling_batch: BasecallingBatch, min_batch_size_gb: int) -> bool:
     # Skip if there are no pod5 files
     if not basecalling_batch.pod5_files:
         return True
 
-    # Check if there are enough pod5 files to basecall
-    if len(basecalling_batch.pod5_files) >= min_batch_size:
+    # Check if batch size is big enough in GB
+    if not is_batch_too_small(basecalling_batch.pod5_files, min_batch_size_gb):
         return False
 
     # Check if unbasecalled pod5 files are the only ones left
     return not basecalling_batch.run.all_pod5_files_are_transferred()
+
+
+def is_batch_too_small(pod5_files: List[Path], min_batch_size_gb: int) -> bool:
+    bath_size_gb = sum(x.stat().st_size for x in pod5_files) / 1024**3
+    return bath_size_gb < min_batch_size_gb
 
 
 def basecalling_is_pending(run: SequencingRun) -> bool:

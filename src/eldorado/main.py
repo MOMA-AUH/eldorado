@@ -70,14 +70,6 @@ def scheduler(
             help="Slurm account",
         ),
     ],
-    min_batch_size: Annotated[
-        int,
-        typer.Option(
-            "--min-batch-size",
-            "-b",
-            help="Minimum batch size",
-        ),
-    ] = 1,
     log_file: Annotated[
         Path,
         typer.Option(
@@ -89,7 +81,15 @@ def scheduler(
             readable=True,
             resolve_path=True,
         ),
-    ] = None,
+    ],
+    min_batch_size: Annotated[
+        int,
+        typer.Option(
+            "--min-batch-size",
+            "-b",
+            help="Minimum batch size in GB",
+        ),
+    ] = 1,
     dry_run: Annotated[
         bool,
         typer.Option(

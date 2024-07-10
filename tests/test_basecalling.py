@@ -1,6 +1,6 @@
 import pytest
 
-from eldorado.basecalling import cleanup_basecalling_lock_files, batch_should_be_skipped, BasecallingBatch
+from eldorado.basecalling import cleanup_basecalling_lock_files, batch_should_be_skipped, BasecallingBatch, is_batch_too_small
 import eldorado.basecalling as basecalling
 from eldorado.pod5_handling import SequencingRun
 from tests.test_utils import create_files
@@ -34,6 +34,9 @@ def test_setup(pod5_files_count, tmp_path):
     assert batch.pod5_manifest.read_text(encoding="utf-8") == "\n".join(str(file) for file in pod5_files) + "\n"
 
 
+ONE_KB_IN_GB = 1 / 1024 / 1024
+
+
 @pytest.mark.usefixtures("mock_pod5_internals")
 @pytest.mark.parametrize(
     "pod5_dir, existing_files, min_batch_size, excepted",
@@ -41,7 +44,7 @@ def test_setup(pod5_files_count, tmp_path):
         pytest.param(
             "pod5",
             [],
-            1,
+            ONE_KB_IN_GB,
             True,
             id="Empty pod5 dir",
         ),
@@ -50,7 +53,7 @@ def test_setup(pod5_files_count, tmp_path):
             [
                 "pod5/file.pod5",
             ],
-            1,
+            ONE_KB_IN_GB,
             False,
             id="Single pod5 file needs to be basecalled",
         ),
@@ -60,7 +63,7 @@ def test_setup(pod5_files_count, tmp_path):
                 "pod5/file_1.pod5",
                 "pod5/file_2.pod5",
             ],
-            1,
+            ONE_KB_IN_GB,
             False,
             id="Two pod5 files need to be basecalled",
         ),
@@ -70,7 +73,7 @@ def test_setup(pod5_files_count, tmp_path):
                 "pod5/file.pod5",
                 "bam_eldorado/basecalling/lock_files/file.pod5.lock",
             ],
-            1,
+            ONE_KB_IN_GB,
             True,
             id="Skip pod5 file with lock file",
         ),
@@ -80,7 +83,7 @@ def test_setup(pod5_files_count, tmp_path):
                 "pod5/file.pod5",
                 "bam_eldorado/basecalling/done_files/file.pod5.done",
             ],
-            1,
+            ONE_KB_IN_GB,
             True,
             id="Skip pod5 file with done file",
         ),
@@ -91,7 +94,7 @@ def test_setup(pod5_files_count, tmp_path):
                 "pod5/new_file.pod5",
                 "bam_eldorado/basecalling/lock_files/file.pod5.lock",
             ],
-            1,
+            ONE_KB_IN_GB,
             False,
             id="One pod5 locked and one new pod5 file for basecalling",
         ),
@@ -100,7 +103,7 @@ def test_setup(pod5_files_count, tmp_path):
             [
                 "pod5/new_file.pod5",
             ],
-            2,
+            2 * ONE_KB_IN_GB,
             True,
             id="Single new pod5 file with min batch size 2",
         ),
@@ -111,7 +114,7 @@ def test_setup(pod5_files_count, tmp_path):
                 "pod5/new_file.pod5",
                 "bam_eldorado/basecalling/lock_files/file.pod5.lock",
             ],
-            2,
+            2 * ONE_KB_IN_GB,
             True,
             id="One pod5 locked and one new pod5 file with min batch size 2",
         ),
@@ -128,13 +131,91 @@ def test_batch_should_be_skipped(tmp_path, pod5_dir, existing_files, min_batch_s
     for file in existing_files:
         file.parent.mkdir(parents=True, exist_ok=True)
         file.touch()
+        # Write 1 KB to the file
+        file.write_text("a" * 1024)
 
     # Act
     run = SequencingRun(pod5_dir)
     batch = BasecallingBatch(run)
     result = batch_should_be_skipped(
         basecalling_batch=batch,
-        min_batch_size=min_batch_size,
+        min_batch_size_gb=min_batch_size,
+    )
+
+    # Assert
+    assert result == excepted
+
+
+@pytest.mark.usefixtures("mock_pod5_internals")
+@pytest.mark.parametrize(
+    "pod5_dir, existing_files, min_batch_size, excepted",
+    [
+        pytest.param(
+            "pod5",
+            [],
+            ONE_KB_IN_GB,
+            True,
+            id="Empty pod5 dir",
+        ),
+        pytest.param(
+            "pod5",
+            [
+                "pod5/file.pod5",
+            ],
+            ONE_KB_IN_GB,
+            False,
+            id="Single pod5 file needs to be basecalled",
+        ),
+        pytest.param(
+            "pod5",
+            [
+                "pod5/file_1.pod5",
+                "pod5/file_2.pod5",
+            ],
+            ONE_KB_IN_GB,
+            False,
+            id="Two pod5 files need to be basecalled",
+        ),
+        pytest.param(
+            "pod5",
+            [
+                "pod5/file.pod5",
+            ],
+            2 * ONE_KB_IN_GB,
+            True,
+            id="Single pod5 file with min batch size of 2",
+        ),
+        pytest.param(
+            "pod5",
+            [
+                "pod5/file_1.pod5",
+                "pod5/file_2.pod5",
+                "pod5/file_3.pod5",
+            ],
+            2 * ONE_KB_IN_GB,
+            False,
+            id="Three pod5 files with min batch size of 2",
+        ),
+    ],
+)
+def test_is_batch_too_small(tmp_path, pod5_dir, existing_files, min_batch_size, excepted):
+    # Arrange
+
+    # Insert root dir
+    pod5_dir = tmp_path / pod5_dir
+    existing_files = [tmp_path / file for file in existing_files]
+
+    # Create existing files
+    for file in existing_files:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.touch()
+        # Write 1 KB to the file
+        file.write_text("a" * 1024)
+
+    # Act
+    result = is_batch_too_small(
+        pod5_files=existing_files,
+        min_batch_size_gb=min_batch_size,
     )
 
     # Assert
