@@ -129,8 +129,6 @@ def scheduler(
         logger.info("Found %d pod5 dir(s) that needs processing", len(runs))
 
         for run in runs:
-            logger.info("Processing %s", str(run.pod5_dir))
-
             process_sequencing_run(
                 run=run,
                 dorado_executable=project_config.dorado_executable,
