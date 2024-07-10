@@ -104,5 +104,10 @@ def send_email(recipients: List[str], sample_id: str, output_path: Path) -> None
     email_text = textwrap.dedent(email_text)
 
     # Use subprocess to send the email
-    process = subprocess.Popen(["sendmail", "-t"], stdin=subprocess.PIPE)
-    process.communicate(email_text.encode("utf-8"))
+    subprocess.run(
+        ["sendmail", "-t"],
+        input=email_text.encode("utf-8"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
