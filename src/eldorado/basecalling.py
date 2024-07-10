@@ -16,11 +16,10 @@ from eldorado.filenames import BATCH_DONE, BATCH_JOB_ID, BATCH_MANIFEST, BATCH_B
 @dataclass
 class BasecallingBatch:
     run: SequencingRun
+    pod5_files: List[Path]
 
     # Derived attributes
     batch_id: str = field(init=False)
-
-    pod5_files: List[Path] = field(init=False)
 
     working_dir: Path = field(init=False)
 
@@ -37,9 +36,6 @@ class BasecallingBatch:
     def __post_init__(self):
         # Create batch id from current time
         self.batch_id = str(int(time.time()))
-
-        # Get unbasecalled pod5 files
-        self.pod5_files = self.run.get_unbasecalled_pod5_files()
 
         # Working dir
         self.working_dir = self.run.basecalling_batches_dir / self.batch_id
@@ -128,47 +124,66 @@ def is_completed(job_id):
 def process_unbasecalled_pod5_files(
     run: SequencingRun,
     min_batch_size: int,
+    max_batch_size: int,
     mail_user: List[str],
     slurm_account: str,
     dry_run: bool,
 ):
 
-    batch = BasecallingBatch(run)
+    # Get unbasecalled pod5 files
+    unbasecalled_pod5_files = run.get_unbasecalled_pod5_files()
 
-    if batch_should_be_skipped(batch, min_batch_size):
+    # Check if batch size is big enough in GB
+    if is_batch_too_small(unbasecalled_pod5_files, min_batch_size) and not run.all_pod5_files_are_transferred():
         logger.info(
-            "Skipping. Batch size is less than %d GB",
+            "Skipping. Batch size is less than %d B",
             min_batch_size,
         )
         return
 
-    logger.info("Setting up basecalling batch (id: %s, %d pod5 files)", batch.batch_id, len(batch.pod5_files))
-    batch.setup()
+    # Split pod5 files into groups
+    groups = split_files_into_groups(max_batch_size, unbasecalled_pod5_files)
 
-    submit_basecalling_batch_to_slurm(
-        batch=batch,
-        mail_user=mail_user,
-        slrum_account=slurm_account,
-        dry_run=dry_run,
-    )
+    for pod5_files in groups:
+        batch = BasecallingBatch(run=run, pod5_files=pod5_files)
+
+        logger.info("Setting up basecalling batch (id: %s, %d pod5 files)", batch.batch_id, len(batch.pod5_files))
+        batch.setup()
+
+        submit_basecalling_batch_to_slurm(
+            batch=batch,
+            mail_user=mail_user,
+            slrum_account=slurm_account,
+            dry_run=dry_run,
+        )
 
 
-def batch_should_be_skipped(basecalling_batch: BasecallingBatch, min_batch_size_gb: int) -> bool:
-    # Skip if there are no pod5 files
-    if not basecalling_batch.pod5_files:
+def split_files_into_groups(max_batch_size: int, unbasecalled_pod5_files: List[Path]) -> List[List[Path]]:
+    # Initialize variables
+    groups = []
+    group = []
+    group_size = 0
+    # Keep adding files to group until total size exceeds max batch size
+    for pod5_file in unbasecalled_pod5_files:
+        file_size = pod5_file.stat().st_size
+        # When total size exceeds max batch size, add current group to groups and reset varaibles
+        if group and group_size + file_size > max_batch_size:
+            groups.append(group)
+            group = []
+            group_size = 0
+        group.append(pod5_file)
+        group_size += file_size
+    # Add last group to groups
+    if group:
+        groups.append(group)
+    return groups
+
+
+def is_batch_too_small(pod5_files: List[Path], min_batch_size: int) -> bool:
+    if not pod5_files:
         return True
-
-    # Check if batch size is big enough in GB
-    if not is_batch_too_small(basecalling_batch.pod5_files, min_batch_size_gb):
-        return False
-
-    # Check if unbasecalled pod5 files are the only ones left
-    return not basecalling_batch.run.all_pod5_files_are_transferred()
-
-
-def is_batch_too_small(pod5_files: List[Path], min_batch_size_gb: int) -> bool:
-    bath_size_gb = sum(x.stat().st_size for x in pod5_files) / 1024**3
-    return bath_size_gb < min_batch_size_gb
+    bath_size = sum(x.stat().st_size for x in pod5_files)
+    return bath_size < min_batch_size
 
 
 def basecalling_is_pending(run: SequencingRun) -> bool:

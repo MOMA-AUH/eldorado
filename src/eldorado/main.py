@@ -87,9 +87,17 @@ def scheduler(
         typer.Option(
             "--min-batch-size",
             "-b",
-            help="Minimum batch size in GB",
+            help="Minimum batch size. Default: 1 GB",
         ),
-    ] = 1,
+    ] = (1 * 1024**3),
+    max_batch_size: Annotated[
+        int,
+        typer.Option(
+            "--max-batch-size",
+            "-B",
+            help="Maximum batch size in B. Default: 10 GB",
+        ),
+    ] = (10 * 1024**3),
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -131,6 +139,7 @@ def scheduler(
                 mod_5mcg_5hmcg=project_config.mod_5mcg_5hmcg,
                 mod_6ma=project_config.mod_6ma,
                 min_batch_size=min_batch_size,
+                max_batch_size=max_batch_size,
                 run_basecalling=True,
                 run_merging=True,
                 run_demultiplexing=True,
@@ -239,9 +248,17 @@ def manual_run(
         typer.Option(
             "--min-batch-size",
             "-b",
-            help="Minimum batch size",
+            help="Minimum batch size. Default: 1 GB",
         ),
-    ] = 1,
+    ] = (1 * 1024**3),
+    max_batch_size: Annotated[
+        int,
+        typer.Option(
+            "--max-batch-size",
+            "-B",
+            help="Maximum batch size in B. Default: 10 GB",
+        ),
+    ] = (10 * 1024**3),
     run_basecalling: Annotated[
         bool,
         typer.Option(
@@ -312,6 +329,7 @@ def manual_run(
         mod_5mcg_5hmcg=mod_5mcg_5hmcg,
         mod_6ma=mod_6ma,
         min_batch_size=min_batch_size,
+        max_batch_size=max_batch_size,
         run_basecalling=run_basecalling,
         run_merging=run_merging,
         run_demultiplexing=run_demultiplexing,
@@ -330,6 +348,7 @@ def process_sequencing_run(
     mod_5mcg_5hmcg: bool,
     mod_6ma: bool,
     min_batch_size: int,
+    max_batch_size: int,
     run_basecalling: bool,
     run_merging: bool,
     run_demultiplexing: bool,
@@ -367,6 +386,7 @@ def process_sequencing_run(
         process_unbasecalled_pod5_files(
             run=run,
             min_batch_size=min_batch_size,
+            max_batch_size=max_batch_size,
             mail_user=mail_user,
             slurm_account=slurm_account,
             dry_run=dry_run,
