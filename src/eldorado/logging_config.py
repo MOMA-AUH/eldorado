@@ -3,7 +3,7 @@ import logging.handlers
 from pathlib import Path
 
 # Formatting
-FORMAT = "%(levelname)s\t[%(asctime)s]\t[%(filename)s:%(funcName)s:%(lineno)d]\t%(message)s"
+FORMAT = "%(levelname)s\t[%(asctime)s]\t[%(filename)s:%(lineno)d]\t%(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 formatter = logging.Formatter(FORMAT, DATE_FORMAT)
 
