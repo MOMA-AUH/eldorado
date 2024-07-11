@@ -82,7 +82,7 @@ def send_email(recipients: List[str], sample_id: str, output_path: Path) -> None
     # Construct the email
     email_text = f"""\
         To: {", ".join(recipients)}
-        Subject: Eldorado notification: Sample {sample_id} completed
+        Subject: Sample {sample_id} completed
 
         Hi, 
 
@@ -104,8 +104,14 @@ def send_email(recipients: List[str], sample_id: str, output_path: Path) -> None
     email_text = textwrap.dedent(email_text)
 
     # Use subprocess to send the email
+    # NOTE: -F flag is used to set the sender name
     subprocess.run(
-        ["sendmail", "-t"],
+        [
+            "sendmail",
+            "-t",
+            "-F",
+            "Eldorado notification",
+        ],
         input=email_text.encode("utf-8"),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
