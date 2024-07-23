@@ -1,4 +1,5 @@
 import subprocess
+import hashlib
 import time
 import textwrap
 
@@ -34,8 +35,9 @@ class BasecallingBatch:
     pod5_done_files: List[Path] = field(init=False)
 
     def __post_init__(self):
-        # Create batch id from current time
-        self.batch_id = str(int(time.time()))
+        # Create unique batch id using MD5 hash of pod5 files and current time
+        unique_batch_str = "".join([str(x) for x in self.pod5_files]) + str(int(time.time()))
+        self.batch_id = hashlib.md5(unique_batch_str.encode()).hexdigest()
 
         # Working dir
         self.working_dir = self.run.basecalling_batches_dir / self.batch_id
