@@ -1,13 +1,11 @@
 from pathlib import Path
-from unittest.mock import MagicMock
 
 from typing import List
 
 import pytest
 
-from eldorado import pod5_handling
-from eldorado.pod5_handling import SequencingRun, is_complete_pod5_file, needs_basecalling, contains_pod5_files, get_pod5_dirs_from_pattern
-from tests.test_utils import create_files
+from eldorado.pod5_handling import SequencingRun, needs_basecalling, contains_pod5_files, get_pod5_dirs_from_pattern
+from tests.conftest import create_files
 
 
 @pytest.mark.usefixtures("mock_pod5_internals")
@@ -165,42 +163,64 @@ def test_get_pod5_dirs_from_pattern(tmp_path, pattern, dirs, expected):
 
 
 @pytest.mark.parametrize(
-    "pod5_files, expected",
+    "input_files, write_pod5_bytes, expected",
     [
         pytest.param(
             [],
+            True,
             False,
             id="empty",
         ),
         pytest.param(
             ["file.pod5"],
             True,
-            id="single_file",
+            True,
+            id="single_valid_file",
+        ),
+        pytest.param(
+            ["file.pod5"],
+            False,
+            False,
+            id="single_invalid_file",
         ),
         pytest.param(
             ["file.pod5", "file2.pod5"],
             True,
-            id="multiple_files",
+            True,
+            id="multiple_valid_files",
+        ),
+        pytest.param(
+            ["file.pod5", "file2.pod5"],
+            False,
+            False,
+            id="multiple_invalid_files",
         ),
         pytest.param(
             ["file.txt"],
+            True,
             False,
             id="wrong_extension",
         ),
     ],
 )
-def test_contains_pod5_files(tmp_path, pod5_files, expected):
+def test_contains_pod5_files(tmp_path, input_files, write_pod5_bytes, expected):
     # Arrange
     root_dir = tmp_path / "root"
     root_dir.mkdir()
 
     # Add root dir to files
-    pod5_files = [root_dir / x for x in pod5_files]
+    input_files = [root_dir / x for x in input_files]
 
     # Create pod5 files
-    for file in pod5_files:
+    for file in input_files:
         file.parent.mkdir(parents=True, exist_ok=True)
         file.touch()
+
+    # Write pod5 specific bytes to input files
+    if write_pod5_bytes:
+        bytes = b"\x8BPOD\r\n\x1A\n"
+        for file in input_files:
+            file.write_bytes(bytes)
 
     # Act
     result = contains_pod5_files(root_dir)
@@ -375,44 +395,3 @@ def test_get_unbasecalled_pod5_files(tmp_path, pod5_files, lock_files, done_file
 
     # Assert
     assert set(unbasecalled_files) == set(expected)
-
-
-@pytest.mark.parametrize(
-    "file_content, expected",
-    [
-        pytest.param(
-            b"\x8BPOD\r\n\x1A\n",
-            True,
-            id="valid_pod5_file",
-        ),
-        pytest.param(
-            b"\x8BPOD\r\n\x1A",
-            False,
-            id="incomplete_pod5_file",
-        ),
-        pytest.param(
-            b"\x8BPOD\r\n",
-            False,
-            id="missing_eof",
-        ),
-        pytest.param(
-            b"\x8BPOD\r\n\x1A\n\x00\x8BPOD\r\n\x1A\n",
-            True,
-            id="file_with_extra_data",
-        ),
-        pytest.param(
-            b"\x8BPOD\r\n\x1A\n\x00",
-            False,
-            id="incomplete_file_with_extra_data",
-        ),
-    ],
-)
-def test_is_complete_pod5_file(tmp_path, file_content, expected):
-    # Arrange
-    file_path = tmp_path / "file.pod5"
-    with open(file_path, "wb") as f:
-        f.write(file_content)
-    # Act
-    result = is_complete_pod5_file(file_path)
-    # Assert
-    assert result == expected

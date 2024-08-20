@@ -19,7 +19,7 @@ from eldorado.constants import (
     MOD_6MA,
 )
 from eldorado.logging_config import logger
-from eldorado.utils import write_to_file
+from eldorado.utils import write_to_file, is_complete_pod5_file
 
 
 @dataclass
@@ -74,15 +74,15 @@ def get_metadata(pod5_dir: Path) -> Metadata:
     # Get all pod5 files
     pod5_files = pod5_dir.glob("*.pod5")
 
-    # Get first pod5 file
-    first_pod5_file = next(pod5_files, None)
+    # Get first complete pod5 file
+    first_complete_pod5_file = next((pod5 for pod5 in pod5_files if is_complete_pod5_file(pod5)), None)
 
     # If no pod5 files are found raise error
-    if first_pod5_file is None:
+    if first_complete_pod5_file is None:
         raise FileNotFoundError(f"No pod5 files found in directory {pod5_dir}")
 
     # Get first read from file
-    first_pod5_read = next(pod5.Reader(first_pod5_file).reads())
+    first_pod5_read = next(pod5.Reader(first_complete_pod5_file).reads())
 
     # Unpack run info
     run_info = first_pod5_read.run_info

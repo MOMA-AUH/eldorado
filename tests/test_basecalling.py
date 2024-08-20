@@ -8,7 +8,7 @@ from eldorado.basecalling import (
 )
 import eldorado.basecalling as basecalling
 from eldorado.pod5_handling import SequencingRun
-from tests.test_utils import create_files
+from tests.conftest import create_files
 
 
 @pytest.mark.usefixtures("mock_pod5_internals")

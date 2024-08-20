@@ -120,12 +120,17 @@ def scheduler(
 
     # Process sequencing runs for each project
     for project_config in project_configs:
-        logger.info("Processing project %s", project_config.project_id)
 
         # Find pod5 dirs that needs processing (pattern: [project_id]/[sample_id]/[run_id]/pod5*)
         pattern = f"{project_config.project_id}/*/*/pod5*"
         runs = find_sequencning_runs_for_processing(root_dir, pattern)
 
+        # Skip if no runs found
+        if not runs:
+            continue
+
+        # Process each run
+        logger.info("Processing project %s", project_config.project_id)
         logger.info("Found %d pod5 dir(s) that needs processing", len(runs))
 
         for run in runs:

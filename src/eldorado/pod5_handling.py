@@ -2,11 +2,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Generator
 
-import os
-
 import re
 
 from eldorado.configuration import Metadata, get_metadata, Config
+from eldorado.utils import is_complete_pod5_file
 import eldorado.filenames as fn
 
 
@@ -148,26 +147,6 @@ class SequencingRun:
         return [pod5 for pod5 in pod5_files if f"{pod5.name}.lock" not in lock_files_names and f"{pod5.name}.done" not in done_files_names]
 
 
-def is_complete_pod5_file(path: Path) -> bool:
-    # Pod5 docs: https://pod5-file-format.readthedocs.io/en/latest/SPECIFICATION.html#combined-file-layout
-    pattern = bytes((0x8B, 0x50, 0x4F, 0x44, 0xD, 0xA, 0x1A, 0x0A))
-    pattern_len = len(pattern)
-
-    fd = os.open(path, os.O_RDONLY)
-    try:
-        # Check if the file starts with the pattern
-        header = os.read(fd, pattern_len)
-        if header != pattern:
-            return False
-
-        # Check if the file ends with the pattern
-        os.lseek(fd, -pattern_len, os.SEEK_END)
-        footer = os.read(fd, pattern_len)
-        return footer == pattern
-    finally:
-        os.close(fd)
-
-
 def find_sequencning_runs_for_processing(root_dir: Path, pattern: str) -> List[SequencingRun]:
 
     # Get all pod5 directories that match the pattern
@@ -200,4 +179,5 @@ def needs_basecalling(pod5_dir: Path) -> bool:
 
 
 def contains_pod5_files(x: Path) -> bool:
-    return any(x.glob("*.pod5"))
+    pod5_files = x.glob("*.pod5")
+    return any(pod5_file for pod5_file in pod5_files if is_complete_pod5_file(pod5_file))
