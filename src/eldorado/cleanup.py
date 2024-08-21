@@ -107,7 +107,7 @@ def send_email(recipients: List[str], sample_id: str, output_path: Path) -> None
     # NOTE: -F flag is used to set the sender name
     subprocess.run(
         [
-            "sendmail",
+            "/usr/sbin/sendmail",
             "-t",
             "-F",
             "Eldorado notification",
