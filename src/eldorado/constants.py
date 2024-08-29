@@ -1,5 +1,6 @@
 # Fields:
 PROJECT_ID = "project_id"
+ACCOUNT = "account"
 DORADO_EXECUTABLE = "dorado_executable"
 BASECALLING_MODEL = "basecalling_model"
 MOD_5MCG_5HMCG = "mod_5mcg_5hmcg"

@@ -1,23 +1,22 @@
-from typing import List
-
 from pathlib import Path
+from typing import List
 
 import pytest
 
 import eldorado.configuration as configuration
 from eldorado.configuration import (
-    is_version_newer,
+    DoradoConfig,
+    ProjectConfig,
     get_latest_version,
     get_modification_models,
-    Config,
-    ProjectConfig,
-    unpack_config_row,
+    get_project_configs,
     is_basecalling_model_path_valid,
     is_dorado_executable_valid,
     is_row_inputs_valid,
-    get_project_configs,
+    is_version_newer,
+    unpack_config_row,
 )
-from eldorado.constants import PROJECT_ID, DORADO_EXECUTABLE, BASECALLING_MODEL, MOD_5MCG_5HMCG, MOD_6MA
+from eldorado.constants import ACCOUNT, BASECALLING_MODEL, DORADO_EXECUTABLE, MOD_5MCG_5HMCG, MOD_6MA, PROJECT_ID
 
 
 # Helper functions
@@ -29,7 +28,7 @@ def create_files(files):
 
 def test_config_save_and_load(tmp_path):
     # Arrange
-    config = Config(
+    config = DoradoConfig(
         dorado_executable=Path("/path/to/dorado"),
         basecalling_model=Path("/path/to/basecalling_model"),
         modification_models=[Path("/path/to/modification_model")],
@@ -38,7 +37,7 @@ def test_config_save_and_load(tmp_path):
 
     # Act
     config.save(config_path)
-    loaded_config = Config.load(config_path)
+    loaded_config = DoradoConfig.load(config_path)
 
     # Assert
     assert config == loaded_config
@@ -211,10 +210,11 @@ def test_get_modification_models(
 
 
 @pytest.mark.parametrize(
-    "project_id, dorado_executable, basecalling_model, mod_5mcg_5hmcg, mod_6ma",
+    "project_id, account, dorado_executable, basecalling_model, mod_5mcg_5hmcg, mod_6ma",
     [
         pytest.param(
             "N999",
+            "",
             "",
             "",
             "",
@@ -223,6 +223,7 @@ def test_get_modification_models(
         ),
         pytest.param(
             "N123",
+            "my_account",
             "path/to/dorado",
             "v1.0.0",
             "1",
@@ -233,6 +234,7 @@ def test_get_modification_models(
 )
 def test_unpack_project_config(
     project_id: str,
+    account: str,
     dorado_executable: str,
     basecalling_model: str,
     mod_5mcg_5hmcg: str,
@@ -241,6 +243,7 @@ def test_unpack_project_config(
     # Arrange
     row = {
         PROJECT_ID: project_id,
+        ACCOUNT: account,
         DORADO_EXECUTABLE: dorado_executable,
         BASECALLING_MODEL: basecalling_model,
         MOD_5MCG_5HMCG: mod_5mcg_5hmcg,
@@ -248,10 +251,11 @@ def test_unpack_project_config(
     }
 
     # Act
-    project_id_res, dorado_executable_res, basecalling_model_res, mod_5mcg_5hmcg_res, mod_6ma_res = unpack_config_row(row)
+    project_id_res, account_res, dorado_executable_res, basecalling_model_res, mod_5mcg_5hmcg_res, mod_6ma_res = unpack_config_row(row)
 
     # Assert
     assert project_id_res == project_id
+    assert account_res == account
     assert dorado_executable_res == dorado_executable
     assert basecalling_model_res == basecalling_model
     assert mod_5mcg_5hmcg_res == mod_5mcg_5hmcg
@@ -268,14 +272,14 @@ def test_unpack_project_config(
         ),
         pytest.param(
             """\
-                project_id,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
+                project_id,account,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
             """,
             [],
             id="Header only",
         ),
         pytest.param(
             """\
-                project_id ,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
+                project_id,account,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
                 default,path/to/dorado,path/to/model,1,1
             """,
             [],
@@ -283,13 +287,14 @@ def test_unpack_project_config(
         ),
         pytest.param(
             """\
-                project_id ,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
-                default,path/to/dorado,path/to/model,1,1
-                project1,path/to/dorado,path/to/model,1,1
+                project_id,account,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
+                default,my_account,path/to/dorado,path/to/model,1,1
+                project1,my_account,path/to/dorado,path/to/model,1,1
             """,
             [
                 ProjectConfig(
                     "project1",
+                    "my_account",
                     Path("path/to/dorado"),
                     Path("path/to/model"),
                     True,
@@ -300,13 +305,14 @@ def test_unpack_project_config(
         ),
         pytest.param(
             """\
-                project_id ,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
-                default,path/to/dorado,path/to/model,1,1
+                project_id,account,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
+                default,my_account,path/to/dorado,path/to/model,1,1
                 project1,,,,
             """,
             [
                 ProjectConfig(
                     "project1",
+                    "my_account",
                     Path("path/to/dorado"),
                     Path("path/to/model"),
                     True,
@@ -317,13 +323,14 @@ def test_unpack_project_config(
         ),
         pytest.param(
             """\
-                project_id ,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
-                default,path/to/dorado,auto,1,1
-                project1,,,,
+                project_id,account,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
+                default,my_account,path/to/dorado,auto,1,1
+                project1,,,,,
             """,
             [
                 ProjectConfig(
                     "project1",
+                    "my_account",
                     Path("path/to/dorado"),
                     None,
                     True,
@@ -334,13 +341,14 @@ def test_unpack_project_config(
         ),
         pytest.param(
             """\
-                project_id ,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
-                default,path/to/dorado,path/to/model,1,1
-                project1,,auto,,
+                project_id,account,dorado_executable,basecalling_model,mod_5mcg_5hmcg,mod_6ma
+                default,my_account,path/to/dorado,path/to/model,1,1
+                project1,,,auto,,
             """,
             [
                 ProjectConfig(
                     "project1",
+                    "my_account",
                     Path("path/to/dorado"),
                     None,
                     True,
@@ -446,6 +454,7 @@ class TestIsDoradoExecutableValid:
 def project_defaults():
     return ProjectConfig(
         project_id="default_project",
+        account="default_account",
         dorado_executable=Path("/default/path/to/dorado"),
         basecalling_model=Path("/default/path/to/model"),
         mod_5mcg_5hmcg=True,
@@ -459,6 +468,7 @@ def project_defaults():
         pytest.param(
             {
                 "project_id": "1",
+                "account": "",
                 "dorado_executable": "",
                 "basecalling_model": "",
                 "mod_5mcg_5hmcg": "",
@@ -470,6 +480,7 @@ def project_defaults():
         pytest.param(
             {
                 "project_id": "2",
+                "account": "my_account",
                 "dorado_executable": "/path/to/dorado",
                 "basecalling_model": "/path/to/model",
                 "mod_5mcg_5hmcg": "1",
@@ -481,6 +492,7 @@ def project_defaults():
         pytest.param(
             {
                 "project_id": "3",
+                "account": "my_account",
                 "dorado_executable": "",
                 "basecalling_model": "",
                 "mod_5mcg_5hmcg": "not_bool",

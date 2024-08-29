@@ -1,12 +1,11 @@
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Generator
+from typing import Generator, List
 
-import re
-
-from eldorado.configuration import Metadata, get_metadata, Config
-from eldorado.utils import is_complete_pod5_file
 import eldorado.filenames as fn
+from eldorado.configuration import DoradoConfig, Metadata, get_metadata
+from eldorado.utils import is_complete_pod5_file
 
 
 @dataclass
@@ -53,13 +52,13 @@ class SequencingRun:
         return self._metadata
 
     # Dorado config
-    _config: Config = field(init=False)
+    _dorado_config: DoradoConfig = field(init=False)
 
     @property
-    def config(self) -> Config:
+    def dorado_config(self) -> DoradoConfig:
         if not hasattr(self, "_config"):
-            self._config = Config.load(self.dorado_config_file)
-        return self._config
+            self._dorado_config = DoradoConfig.load(self.dorado_config_file)
+        return self._dorado_config
 
     def __post_init__(self):
         # General
@@ -148,7 +147,6 @@ class SequencingRun:
 
 
 def find_sequencning_runs_for_processing(root_dir: Path, pattern: str) -> List[SequencingRun]:
-
     # Get all pod5 directories that match the pattern
     pod5_dirs = get_pod5_dirs_from_pattern(root_dir, pattern)
 

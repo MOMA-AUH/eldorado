@@ -1,15 +1,15 @@
 from pathlib import Path
 
 import typer
-from typing_extensions import Annotated, Optional, List
+from typing_extensions import Annotated, List, Optional
 
-from eldorado.basecalling import process_unbasecalled_pod5_files, basecalling_is_pending, cleanup_basecalling_lock_files, SequencingRun
-from eldorado.merging import merging_is_pending, submit_merging_to_slurm, cleanup_merge_lock_files
-from eldorado.cleanup import needs_cleanup, cleanup_output_dir
-from eldorado.logging_config import set_log_file_handler, logger
-from eldorado.demultiplexing import demultiplexing_is_pending, process_demultiplexing, cleanup_demultiplexing_lock_files
-from eldorado.pod5_handling import find_sequencning_runs_for_processing, needs_basecalling, contains_pod5_files
+from eldorado.basecalling import SequencingRun, basecalling_is_pending, cleanup_basecalling_lock_files, process_unbasecalled_pod5_files
+from eldorado.cleanup import cleanup_output_dir, needs_cleanup
 from eldorado.configuration import get_dorado_config, get_project_configs
+from eldorado.demultiplexing import cleanup_demultiplexing_lock_files, demultiplexing_is_pending, process_demultiplexing
+from eldorado.logging_config import logger, set_log_file_handler
+from eldorado.merging import cleanup_merge_lock_files, merging_is_pending, submit_merging_to_slurm
+from eldorado.pod5_handling import contains_pod5_files, find_sequencning_runs_for_processing, needs_basecalling
 
 # Set up the CLI
 app = typer.Typer()
@@ -62,14 +62,6 @@ def scheduler(
             help="Email address for notifications. This can be used multiple times. Note that only the first email address will be used for Slurm notifications.",
         ),
     ],
-    slurm_account: Annotated[
-        str,
-        typer.Option(
-            "--slurm-account",
-            "-a",
-            help="Slurm account",
-        ),
-    ],
     log_file: Annotated[
         Path,
         typer.Option(
@@ -82,12 +74,22 @@ def scheduler(
             resolve_path=True,
         ),
     ],
+    # Slurm options
+    walltime: Annotated[
+        str,
+        typer.Option(
+            "--base-waltime",
+            "-w",
+            help="Basecalling walltime for SLURM. Default: 12 hours",
+        ),
+    ] = "12:00:00",
+    # Batching options
     min_batch_size: Annotated[
         int,
         typer.Option(
             "--min-batch-size",
             "-b",
-            help="Minimum batch size. Default: 1 GB",
+            help="Minimum batch size in bytes (B). Default: 1 GB",
         ),
     ] = (1 * 1024**3),
     max_batch_size: Annotated[
@@ -95,9 +97,10 @@ def scheduler(
         typer.Option(
             "--max-batch-size",
             "-B",
-            help="Maximum batch size in B. Default: 10 GB",
+            help="Maximum batch size in  bytes (B). Default: 10 GB",
         ),
     ] = (10 * 1024**3),
+    # Dry run
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -107,7 +110,6 @@ def scheduler(
         ),
     ] = False,
 ) -> None:
-
     # Setup logging to file
     set_log_file_handler(logger, log_file)
 
@@ -120,7 +122,6 @@ def scheduler(
 
     # Process sequencing runs for each project
     for project_config in project_configs:
-
         # Find pod5 dirs that needs processing (pattern: [project_id]/[sample_id]/[run_id]/pod5*)
         pattern = f"{project_config.project_id}/*/*/pod5*"
         runs = find_sequencning_runs_for_processing(root_dir, pattern)
@@ -136,19 +137,22 @@ def scheduler(
         for run in runs:
             process_sequencing_run(
                 run=run,
+                # Project config
                 dorado_executable=project_config.dorado_executable,
                 basecalling_model=project_config.basecalling_model,
-                models_dir=models_dir,
                 mod_5mcg_5hmcg=project_config.mod_5mcg_5hmcg,
                 mod_6ma=project_config.mod_6ma,
-                min_batch_size=min_batch_size,
-                max_batch_size=max_batch_size,
+                slurm_account=project_config.account,
+                # Other options
+                models_dir=models_dir,
                 run_basecalling=True,
                 run_merging=True,
                 run_demultiplexing=True,
                 run_cleanup=True,
                 mail_user=mail_user,
-                slurm_account=slurm_account,
+                walltime=walltime,
+                min_batch_size=min_batch_size,
+                max_batch_size=max_batch_size,
                 dry_run=dry_run,
             )
 
@@ -200,14 +204,6 @@ def manual_run(
             help="Email address for notifications. This can be used multiple times. Note that only the first email address will be used for Slurm notifications.",
         ),
     ],
-    slurm_account: Annotated[
-        str,
-        typer.Option(
-            "--slurm-account",
-            "-a",
-            help="Slurm account",
-        ),
-    ],
     log_file: Annotated[
         Path,
         typer.Option(
@@ -220,6 +216,23 @@ def manual_run(
             resolve_path=True,
         ),
     ],
+    # Slurm options
+    slurm_account: Annotated[
+        str,
+        typer.Option(
+            "--slurm-account",
+            "-a",
+            help="Slurm account",
+        ),
+    ],
+    walltime: Annotated[
+        str,
+        typer.Option(
+            "--base-waltime",
+            "-w",
+            help="Basecalling walltime for SLURM. Default: 12 hours",
+        ),
+    ] = "12:00:00",
     basecalling_model: Annotated[
         Optional[Path],
         typer.Option(
@@ -246,6 +259,7 @@ def manual_run(
             help="6mA modification",
         ),
     ] = False,
+    # Batching options
     min_batch_size: Annotated[
         int,
         typer.Option(
@@ -262,6 +276,7 @@ def manual_run(
             help="Maximum batch size in B. Default: 10 GB",
         ),
     ] = (10 * 1024**3),
+    # Eldorado step options
     run_basecalling: Annotated[
         bool,
         typer.Option(
@@ -299,7 +314,6 @@ def manual_run(
         ),
     ] = False,
 ) -> None:
-
     # Check if everything should be run (default behaviour if all options are False)
     if not any([run_basecalling, run_merging, run_demultiplexing, run_cleanup]):
         run_basecalling = True
@@ -339,6 +353,7 @@ def manual_run(
         run_cleanup=run_cleanup,
         mail_user=mail_user,
         slurm_account=slurm_account,
+        walltime=walltime,
         dry_run=dry_run,
     )
 
@@ -352,6 +367,7 @@ def process_sequencing_run(
     mod_6ma: bool,
     min_batch_size: int,
     max_batch_size: int,
+    walltime: str,
     run_basecalling: bool,
     run_merging: bool,
     run_demultiplexing: bool,
@@ -390,6 +406,7 @@ def process_sequencing_run(
             run=run,
             min_batch_size=min_batch_size,
             max_batch_size=max_batch_size,
+            walltime=walltime,
             mail_user=mail_user,
             slurm_account=slurm_account,
             dry_run=dry_run,

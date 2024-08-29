@@ -1,9 +1,7 @@
 import subprocess
 import textwrap
-
-from typing import List
-
 from pathlib import Path
+from typing import List
 
 from eldorado.constants import BARCODING_KITS
 from eldorado.logging_config import logger
@@ -50,7 +48,7 @@ def submit_demux_to_slurm(
         mkdir -p "$TMPDIR"
         
         # Run demux
-        {run.config.dorado_executable} demux \\
+        {run.dorado_config.dorado_executable} demux \\
             --no-trim \\
             {sample_sheet_option} \\
             --kit-name {run.metadata.sequencing_kit} \\
@@ -142,7 +140,6 @@ def process_demultiplexing(
 
 
 def sample_sheet_is_valid(sample_sheet: Path) -> bool:
-
     # Read first line (header) of sample sheet csv
     with open(sample_sheet, "r", encoding="utf-8") as f:
         header = f.readline().split(",")

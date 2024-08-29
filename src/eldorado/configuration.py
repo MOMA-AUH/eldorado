@@ -1,25 +1,24 @@
+import csv
+import json
+import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
-import re
-import json
-
-import csv
-
-from dataclasses import dataclass
 
 import pod5
 
 from eldorado.constants import (
-    REQUIRED_PROJECT_CONFIG_FIELDS,
-    DEFAULT_PROJECT_NAME,
-    PROJECT_ID,
-    DORADO_EXECUTABLE,
+    ACCOUNT,
     BASECALLING_MODEL,
+    DEFAULT_PROJECT_NAME,
+    DORADO_EXECUTABLE,
     MOD_5MCG_5HMCG,
     MOD_6MA,
+    PROJECT_ID,
+    REQUIRED_PROJECT_CONFIG_FIELDS,
 )
 from eldorado.logging_config import logger
-from eldorado.utils import write_to_file, is_complete_pod5_file
+from eldorado.utils import is_complete_pod5_file, write_to_file
 
 
 @dataclass
@@ -35,6 +34,7 @@ class Metadata:
 @dataclass
 class ProjectConfig:
     project_id: str
+    account: str
     dorado_executable: Path
     basecalling_model: Path | None  # None: Auto select model
     mod_5mcg_5hmcg: bool
@@ -42,7 +42,7 @@ class ProjectConfig:
 
 
 @dataclass
-class Config:
+class DoradoConfig:
     dorado_executable: Path
     basecalling_model: Path
     modification_models: List[Path]
@@ -99,22 +99,22 @@ def get_metadata(pod5_dir: Path) -> Metadata:
 
 
 def get_default_project_config(row_dicts: List[dict]) -> ProjectConfig:
-
     for row in row_dicts:
         if row["project_id"] == DEFAULT_PROJECT_NAME:
             # Unpack row
-            project_id, dorado_executable, basecalling_model, mod_5mcg_5hmcg, mod_6ma = unpack_config_row(row)
+            project_id, account, dorado_executable, basecalling_model, mod_5mcg_5hmcg, mod_6ma = unpack_config_row(row)
 
             # Basecalling model
             basecalling_model = None if basecalling_model == "auto" else Path(basecalling_model)
 
             # Return default project config
             return ProjectConfig(
-                project_id,
-                Path(dorado_executable),
-                basecalling_model,
-                bool(int(mod_5mcg_5hmcg)),
-                bool(int(mod_6ma)),
+                project_id=project_id,
+                account=account,
+                dorado_executable=Path(dorado_executable),
+                basecalling_model=basecalling_model,
+                mod_5mcg_5hmcg=bool(int(mod_5mcg_5hmcg)),
+                mod_6ma=bool(int(mod_6ma)),
             )
 
     logger.error("Default project %s not found in project configs file!", DEFAULT_PROJECT_NAME)
@@ -124,7 +124,6 @@ def get_default_project_config(row_dicts: List[dict]) -> ProjectConfig:
 def get_project_configs(
     csv_file: Path,
 ) -> List[ProjectConfig]:
-
     # Load csv file and strip whitespace from keys and values
     with open(csv_file, "r", encoding="utf-8") as f:
         dict_reader = csv.DictReader(f, delimiter=",")
@@ -160,7 +159,7 @@ def get_project_configs(
 
     default_project_config = get_default_project_config(row_dicts)
 
-    project_configs_dict = []
+    project_configs = []
     for row in row_dicts:
         # Skip default project
         if row[PROJECT_ID] == DEFAULT_PROJECT_NAME:
@@ -170,27 +169,28 @@ def get_project_configs(
         project_config = get_config_from_row(row, default_project_config)
 
         # Add to dict
-        project_configs_dict.append(project_config)
+        project_configs.append(project_config)
 
-    return project_configs_dict
+    return project_configs
 
 
-def unpack_config_row(row: dict) -> Tuple[str, str, str, str, str]:
+def unpack_config_row(row: dict) -> Tuple[str, str, str, str, str, str]:
     project_id = row[PROJECT_ID]
+    account = row[ACCOUNT]
     dorado_executable = row[DORADO_EXECUTABLE]
     basecalling_model = row[BASECALLING_MODEL]
     mod_5mcg_5hmcg = row[MOD_5MCG_5HMCG]
     mod_6ma = row[MOD_6MA]
 
-    return project_id, dorado_executable, basecalling_model, mod_5mcg_5hmcg, mod_6ma
+    return project_id, account, dorado_executable, basecalling_model, mod_5mcg_5hmcg, mod_6ma
 
 
 def get_config_from_row(row: dict, project_defaults: ProjectConfig) -> ProjectConfig:
-
     # Unpack row
-    project_id, dorado_executable_input, basecalling_model_input, mod_5mcg_5hmcg_input, mod_6ma_input = unpack_config_row(row)
+    project_id_input, account_input, dorado_executable_input, basecalling_model_input, mod_5mcg_5hmcg_input, mod_6ma_input = unpack_config_row(row)
 
     # Parse inputs, use defaults if not provided
+    account = account_input or project_defaults.account
     dorado_executable = Path(dorado_executable_input) if dorado_executable_input else project_defaults.dorado_executable
     mod_5mcg_5hmcg = bool(int(mod_5mcg_5hmcg_input)) if mod_5mcg_5hmcg_input else project_defaults.mod_5mcg_5hmcg
     mod_6ma = bool(int(mod_6ma_input)) if mod_6ma_input else project_defaults.mod_6ma
@@ -199,12 +199,15 @@ def get_config_from_row(row: dict, project_defaults: ProjectConfig) -> ProjectCo
     basecalling_model = (
         None
         if basecalling_model_input == "auto"
-        else Path(basecalling_model_input) if basecalling_model_input else project_defaults.basecalling_model
+        else Path(basecalling_model_input)
+        if basecalling_model_input
+        else project_defaults.basecalling_model
     )
 
     # Return project config
     return ProjectConfig(
-        project_id,
+        project_id_input,
+        account,
         dorado_executable,
         basecalling_model,
         mod_5mcg_5hmcg,
@@ -215,8 +218,7 @@ def get_config_from_row(row: dict, project_defaults: ProjectConfig) -> ProjectCo
 def is_row_inputs_valid(
     row: dict[str, str],
 ) -> bool:
-
-    project_id_input, dorado_executable_input, basecalling_model_input, mod_5mcg_5hmcg_input, mod_6ma_input = unpack_config_row(row)
+    project_id_input, account_input, dorado_executable_input, basecalling_model_input, mod_5mcg_5hmcg_input, mod_6ma_input = unpack_config_row(row)
 
     is_default = project_id_input == DEFAULT_PROJECT_NAME
 
@@ -258,8 +260,7 @@ def get_dorado_config(
     mod_5mcg_5hmcg: bool,
     mod_6ma: bool,
     models_dir: Path,
-) -> Config:
-
+) -> DoradoConfig:
     # Get relevant model
     basecalling_model = basecalling_model if basecalling_model is not None else get_basecalling_model(metadata, models_dir)
 
@@ -270,7 +271,7 @@ def get_dorado_config(
         mod_6ma,
     )
 
-    return Config(
+    return DoradoConfig(
         dorado_executable=dorado_executable,
         basecalling_model=basecalling_model,
         modification_models=modification_models,
@@ -329,7 +330,6 @@ def get_latest_version(models: List[Path]) -> Path:
 
 
 def get_basecalling_model(metadata: Metadata, models_dir: Path) -> Path:
-
     # Find basecalling model
     # Link to model documentation: https://github.com/nanoporetech/dorado?tab=readme-ov-file#dna-models
     basecalling_model = None
@@ -360,7 +360,6 @@ def get_modification_models(
     mod_5mcg_5hmcg: bool,
     mod_6ma: bool,
 ) -> List[Path]:
-
     # Create list of modifications
     modifications = []
     if mod_5mcg_5hmcg:

@@ -1,17 +1,16 @@
-import subprocess
 import hashlib
-import time
+import math
+import subprocess
 import textwrap
-
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
 
-from dataclasses import dataclass, field
-
+from eldorado.filenames import BATCH_BAM, BATCH_DONE, BATCH_JOB_ID, BATCH_LOG, BATCH_MANIFEST, BATCH_SCRIPT
 from eldorado.logging_config import logger
 from eldorado.pod5_handling import SequencingRun
 from eldorado.utils import is_in_queue, write_to_file
-from eldorado.filenames import BATCH_DONE, BATCH_JOB_ID, BATCH_MANIFEST, BATCH_BAM, BATCH_LOG, BATCH_SCRIPT
 
 
 @dataclass
@@ -60,7 +59,6 @@ class BasecallingBatch:
         self.pod5_done_files = [self.run.basecalling_done_files_dir / f"{pod5_file.name}.done" for pod5_file in self.pod5_files]
 
     def setup(self):
-
         # Create working directory
         self.working_dir.mkdir(exist_ok=True, parents=True)
 
@@ -78,7 +76,6 @@ def cleanup_basecalling_lock_files(pod5_dir: SequencingRun):
     # Loop through all batch directories and collect inactive and active pod5 files
     queued_pod5_files: set[Path] = set()
     for batch_dir in pod5_dir.basecalling_batches_dir.glob("*"):
-
         # Skip if job is done
         if Path(batch_dir / BATCH_DONE).exists():
             continue
@@ -127,16 +124,16 @@ def process_unbasecalled_pod5_files(
     run: SequencingRun,
     min_batch_size: int,
     max_batch_size: int,
+    walltime: str,
     mail_user: List[str],
     slurm_account: str,
     dry_run: bool,
 ):
-
     # Get unbasecalled pod5 files
     unbasecalled_pod5_files = run.get_unbasecalled_pod5_files()
 
     # Check if batch size is big enough in GB
-    if is_batch_too_small(unbasecalled_pod5_files, min_batch_size) and not run.all_pod5_files_are_transferred():
+    if file_size(unbasecalled_pod5_files) < min_batch_size and not run.all_pod5_files_are_transferred():
         logger.info(
             "Skipping. Batch size is less than %d B",
             min_batch_size,
@@ -155,7 +152,8 @@ def process_unbasecalled_pod5_files(
         submit_basecalling_batch_to_slurm(
             batch=batch,
             mail_user=mail_user,
-            slrum_account=slurm_account,
+            slurm_account=slurm_account,
+            walltime=walltime,
             dry_run=dry_run,
         )
 
@@ -181,11 +179,8 @@ def split_files_into_groups(max_batch_size: int, unbasecalled_pod5_files: List[P
     return groups
 
 
-def is_batch_too_small(pod5_files: List[Path], min_batch_size: int) -> bool:
-    if not pod5_files:
-        return True
-    bath_size = sum(x.stat().st_size for x in pod5_files)
-    return bath_size < min_batch_size
+def file_size(files: List[Path]) -> int:
+    return sum(x.stat().st_size for x in files) if files else 0
 
 
 def basecalling_is_pending(run: SequencingRun) -> bool:
@@ -206,15 +201,15 @@ def has_unbasecalled_pod5_files(pod5_dir: SequencingRun) -> bool:
 
 def submit_basecalling_batch_to_slurm(
     batch: BasecallingBatch,
-    slrum_account: str,
+    slurm_account: str,
     mail_user: List[str],
     dry_run: bool,
+    walltime: str,
 ):
-
     # Get configuration
-    dorado_executable = batch.run.config.dorado_executable
-    basecalling_model = batch.run.config.basecalling_model
-    modification_models = batch.run.config.modification_models
+    dorado_executable = batch.run.dorado_config.dorado_executable
+    basecalling_model = batch.run.dorado_config.basecalling_model
+    modification_models = batch.run.dorado_config.modification_models
 
     # Convert path lists to strings
     pod5_files_str = " ".join([str(x) for x in batch.pod5_files])
@@ -229,8 +224,8 @@ def submit_basecalling_batch_to_slurm(
 
     slurm_script = f"""\
         #!/bin/bash
-        #SBATCH --account           {slrum_account}
-        #SBATCH --time              7-00:00:00
+        #SBATCH --account           {slurm_account}
+        #SBATCH --time              {walltime}
         #SBATCH --cpus-per-task     2
         #SBATCH --mem               32g
         #SBATCH --partition         gpu
