@@ -1,16 +1,13 @@
-from typing import List, Generator
-
-import textwrap
-
-import subprocess
 import csv
-
+import subprocess
+import textwrap
 from pathlib import Path
+from typing import Generator, List
 
-from eldorado.pod5_handling import SequencingRun
-from eldorado.merging import get_done_batch_dirs
 from eldorado.filenames import BATCH_LOG
 from eldorado.logging_config import logger
+from eldorado.merging import get_done_batch_dirs
+from eldorado.pod5_handling import SequencingRun
 
 
 def needs_cleanup(run: SequencingRun) -> bool:
@@ -21,7 +18,6 @@ def cleanup_output_dir(
     run: SequencingRun,
     mail_user: List[str],
 ) -> None:
-
     # Move demultiplexed bam files to output directory
     demuxed_bam_files = run.demux_working_dir.glob("*.bam")
     for bam_file in demuxed_bam_files:
@@ -48,8 +44,7 @@ def cleanup_output_dir(
     # Send email
     send_email(
         recipients=mail_user,
-        sample_id=run.metadata.library_pool_id,
-        output_path=run.output_dir,
+        run=run,
     )
     logger.info("Sent email to %s", mail_user)
 
@@ -77,7 +72,12 @@ def load_logs_as_dicts(log_files: List[Path] | Generator[Path, None, None]):
     return dict_list
 
 
-def send_email(recipients: List[str], sample_id: str, output_path: Path) -> None:
+def send_email(recipients: List[str], run: SequencingRun) -> None:
+    # Extract data from run
+    sample_id = run.metadata.library_pool_id
+    output_path = run.output_dir
+    dorado_executable = run.dorado_config.dorado_executable.name
+    basecalling_model = run.dorado_config.basecalling_model.name
 
     # Construct the email
     email_text = f"""\
@@ -89,6 +89,11 @@ def send_email(recipients: List[str], sample_id: str, output_path: Path) -> None
         The following sample completed basecalling:
         
         {sample_id}
+
+        The basecalling was done using the following Dorado configuration:
+
+        Dorado executable: {dorado_executable}
+        Basecalling model: {basecalling_model}
 
         The data is available at: 
         
