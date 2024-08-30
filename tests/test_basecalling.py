@@ -11,7 +11,6 @@ from eldorado.pod5_handling import SequencingRun
 from tests.conftest import create_files
 
 
-@pytest.mark.usefixtures("mock_pod5_internals")
 @pytest.mark.parametrize(
     "pod5_files_count",
     [
@@ -38,7 +37,6 @@ def test_setup(pod5_files_count, tmp_path):
     assert batch.pod5_manifest.read_text(encoding="utf-8") == "\n".join(str(file) for file in pod5_files) + "\n"
 
 
-@pytest.mark.usefixtures("mock_pod5_internals")
 @pytest.mark.parametrize(
     "pod5_dir, existing_files, expected",
     [
@@ -98,7 +96,6 @@ def test_file_size(tmp_path, pod5_dir, existing_files, expected):
     assert result == expected
 
 
-@pytest.mark.usefixtures("mock_pod5_internals")
 @pytest.mark.parametrize(
     "pod5_dir, existing_files, pod5_is_in_queue, expected_files_after_cleanup",
     [

@@ -11,7 +11,7 @@ from eldorado.utils import is_complete_pod5_file
 @dataclass
 class SequencingRun:
     # Input attributes
-    pod5_dir: Path
+    input_pod5_dir: Path
 
     # Derived attributes
     # Dorado config
@@ -24,6 +24,7 @@ class SequencingRun:
     # Basecalling
     basecalling_working_dir: Path = field(init=False)
     basecalling_batches_dir: Path = field(init=False)
+    basecalling_transferred_pod5_files_dir: Path = field(init=False)
     basecalling_lock_files_dir: Path = field(init=False)
     basecalling_done_files_dir: Path = field(init=False)
 
@@ -48,7 +49,7 @@ class SequencingRun:
     @property
     def metadata(self) -> Metadata:
         if not hasattr(self, "_metadata"):
-            self._metadata = get_metadata(self.pod5_dir)
+            self._metadata = get_metadata(self.input_pod5_dir)
         return self._metadata
 
     # Dorado config
@@ -62,7 +63,7 @@ class SequencingRun:
 
     def __post_init__(self):
         # General
-        self.output_dir = self.pod5_dir.parent / (self.pod5_dir.name.replace("pod5", "bam") + fn.OUTPUT_DIR_SUFFIX)
+        self.output_dir = self.input_pod5_dir.parent / (self.input_pod5_dir.name.replace("pod5", "bam") + fn.OUTPUT_DIR_SUFFIX)
         self.basecalling_summary = self.output_dir / fn.BASECALLING_SUMMARY
 
         # Dorado config
@@ -71,6 +72,7 @@ class SequencingRun:
         # Basecalling
         self.basecalling_working_dir = self.output_dir / fn.BC_DIR
         self.basecalling_batches_dir = self.basecalling_working_dir / fn.BC_BATCHES_DIR
+        self.basecalling_transferred_pod5_files_dir = self.basecalling_working_dir / fn.BC_POD5_DIR
         self.basecalling_lock_files_dir = self.basecalling_working_dir / fn.BC_LOCK_DIR
         self.basecalling_done_files_dir = self.basecalling_working_dir / fn.BC_DONE_DIR
 
@@ -90,11 +92,7 @@ class SequencingRun:
         self.demux_done_file = self.demux_working_dir / fn.DEMUX_DONE
 
     def get_transferred_pod5_files(self) -> Generator[Path, None, None]:
-        # Get all pod5 files
-        pod5_files = self.pod5_dir.glob("*.pod5")
-
-        # Return only files that are complete
-        return (pod5 for pod5 in pod5_files if is_complete_pod5_file(pod5))
+        return self.basecalling_transferred_pod5_files_dir.glob("*.pod5")
 
     def get_lock_files(self) -> List[Path]:
         return list(self.basecalling_lock_files_dir.glob("*.lock"))
@@ -103,10 +101,10 @@ class SequencingRun:
         return list(self.basecalling_done_files_dir.glob("*.done"))
 
     def get_final_summary(self) -> Path | None:
-        return next(self.pod5_dir.parent.glob("final_summary*.txt"), None)
+        return next(self.input_pod5_dir.parent.glob("final_summary*.txt"), None)
 
     def get_sample_sheet(self) -> Path | None:
-        return next(self.pod5_dir.parent.glob("sample_sheet*.csv"), None)
+        return next(self.input_pod5_dir.parent.glob("sample_sheet*.csv"), None)
 
     def all_pod5_files_are_transferred(self) -> bool:
         # Get final summary
@@ -144,6 +142,28 @@ class SequencingRun:
         done_files_names = [done_file.name for done_file in self.get_done_files()]
 
         return [pod5 for pod5 in pod5_files if f"{pod5.name}.lock" not in lock_files_names and f"{pod5.name}.done" not in done_files_names]
+
+
+def update_transferred_pod5_files(run: SequencingRun) -> None:
+    # All input pod5 files
+    pod5_files = run.input_pod5_dir.glob("*.pod5")
+
+    # All transferred pod5 files
+    transferred_pod5_file_names = [file.name for file in run.get_transferred_pod5_files()]
+
+    # Get new pod5 files
+    new_pod5_files = [pod5 for pod5 in pod5_files if pod5.name not in transferred_pod5_file_names]
+
+    # Filter out pod5 files that are not complete
+    new_pod5_files = [pod5 for pod5 in new_pod5_files if is_complete_pod5_file(pod5)]
+
+    # Create links to new pod5 files
+    for new_pod5 in new_pod5_files:
+        new_pod5_link = run.basecalling_transferred_pod5_files_dir / new_pod5.name
+        # Make directory if it does not exist
+        new_pod5_link.parent.mkdir(exist_ok=True, parents=True)
+        # Create symlink
+        new_pod5_link.symlink_to(new_pod5.resolve())
 
 
 def find_sequencning_runs_for_processing(root_dir: Path, pattern: str) -> List[SequencingRun]:

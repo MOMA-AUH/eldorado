@@ -1,19 +1,111 @@
 from pathlib import Path
-
 from typing import List
 
 import pytest
 
-from eldorado.pod5_handling import SequencingRun, needs_basecalling, contains_pod5_files, get_pod5_dirs_from_pattern
+from eldorado.pod5_handling import SequencingRun, contains_pod5_files, get_pod5_dirs_from_pattern, needs_basecalling, update_transferred_pod5_files
 from tests.conftest import create_files
 
 
-@pytest.mark.usefixtures("mock_pod5_internals")
 @pytest.mark.parametrize(
-    "pod5_dir, pod5_files, final_summary, final_summary_text, expected",
+    "input_pod5_files, transferred_pod5_files, transferred_pod5_files_after_update",
+    [
+        pytest.param(
+            {},
+            [],
+            [],
+            id="Empty",
+        ),
+        pytest.param(
+            {"file.pod5": b"\x8bPOD\r\n\x1a\n"},
+            [],
+            ["file.pod5"],
+            id="Single_valid_file",
+        ),
+        pytest.param(
+            {"file.pod5": b"\x8bPOD\r\n\x1a"},
+            [],
+            [],
+            id="Single_invalid_file",
+        ),
+        pytest.param(
+            {"file.pod5": b"\x8bPOD\r\n\x1a\n"},
+            ["file.pod5"],
+            ["file.pod5"],
+            id="Single_valid_file_already_transferred",
+        ),
+        pytest.param(
+            {
+                "file_valid.pod5": b"\x8bPOD\r\n\x1a\n",
+                "file_invalid.pod5": b"\x8bPOD\r\n\x1a",
+            },
+            [],
+            ["file_valid.pod5"],
+            id="Single_valid_and_single_invalid_file",
+        ),
+        pytest.param(
+            {
+                "file1.pod5": b"\x8bPOD\r\n\x1a\n",
+                "file2.pod5": b"\x8bPOD\r\n\x1a\n",
+            },
+            [],
+            ["file1.pod5", "file2.pod5"],
+            id="Multiple_valid_files",
+        ),
+        pytest.param(
+            {
+                "file1.pod5": b"\x8bPOD\r\n\x1a",
+                "file2.pod5": b"\x8bPOD\r\n\x1a",
+            },
+            [],
+            [],
+            id="Multiple_invalid_files",
+        ),
+        pytest.param(
+            {
+                "file1.pod5": b"\x8bPOD\r\n\x1a\n",
+                "file2.pod5": b"\x8bPOD\r\n\x1a\n",
+            },
+            ["file1.pod5"],
+            ["file1.pod5", "file2.pod5"],
+            id="Multiple_valid_files_one_already_transferred",
+        ),
+    ],
+)
+def test_update_transferred_pod5_files(tmp_path, input_pod5_files, transferred_pod5_files, transferred_pod5_files_after_update):
+    # Arrange
+    # Insert root dir
+    pod5_dir = tmp_path / "pod5"
+    transferred_pod5_dir = tmp_path / "bam_eldorado" / "basecalling" / "transferred_pod5_files"
+    pod5_dir.mkdir(parents=True)
+    transferred_pod5_dir.mkdir(parents=True)
+
+    # Create pod5 files
+    for file, content in input_pod5_files.items():
+        file_path = pod5_dir / file
+        file_path.write_bytes(content)
+
+    # Create transferred pod5 files
+    for file in transferred_pod5_files:
+        file_path = transferred_pod5_dir / file
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.touch()
+
+    # Act
+    run = SequencingRun(pod5_dir)
+    update_transferred_pod5_files(run)
+
+    # Assert
+    result = {f.name for f in transferred_pod5_dir.glob("*")}
+    assert result == set(transferred_pod5_files_after_update)
+
+
+@pytest.mark.parametrize(
+    "pod5_dir, transferred_pod5_dir, pod5_files, final_summary, final_summary_text, expected",
     [
         pytest.param(
             "sample/pod5",
+            "sample/bam_eldorado/basecalling/transferred_pod5_files",
             [],
             "",
             "",
@@ -22,7 +114,10 @@ from tests.conftest import create_files
         ),
         pytest.param(
             "sample/pod5",
-            ["sample/pod5/file.pod5"],
+            "sample/bam_eldorado/basecalling/transferred_pod5_files",
+            [
+                "file.pod5",
+            ],
             "sample/final_summary.txt",
             "pod5_files_in_final_dest=1",
             True,
@@ -30,9 +125,10 @@ from tests.conftest import create_files
         ),
         pytest.param(
             "sample/pod5",
+            "sample/bam_eldorado/basecalling/transferred_pod5_files",
             [
-                "sample/pod5/file1.pod5",
-                "sample/pod5/file2.pod5",
+                "file1.pod5",
+                "file2.pod5",
             ],
             "sample/final_summary.txt",
             "pod5_files_in_final_dest=2",
@@ -41,7 +137,8 @@ from tests.conftest import create_files
         ),
         pytest.param(
             "sample/pod5",
-            ["sample/pod5/file.pod5"],
+            "sample/bam_eldorado/basecalling/transferred_pod5_files",
+            ["file.pod5"],
             "sample/final_summary.txt",
             "pod5_files_in_final_dest=2",
             False,
@@ -52,6 +149,7 @@ from tests.conftest import create_files
 def test_all_pod5_files_transfered(
     tmp_path: Path,
     pod5_dir: str,
+    transferred_pod5_dir: str,
     pod5_files: List[str],
     final_summary: str,
     final_summary_text: str,
@@ -61,7 +159,8 @@ def test_all_pod5_files_transfered(
 
     # Insert tmp directory in path
     pod5_dir_path = tmp_path / pod5_dir
-    pod5_files_path = [tmp_path / file for file in pod5_files]
+    transferred_pod5_dir_path = tmp_path / transferred_pod5_dir
+    pod5_files_path = [transferred_pod5_dir_path / file for file in pod5_files]
 
     if final_summary:
         final_summary_path = tmp_path / final_summary
@@ -218,7 +317,7 @@ def test_contains_pod5_files(tmp_path, input_files, write_pod5_bytes, expected):
 
     # Write pod5 specific bytes to input files
     if write_pod5_bytes:
-        bytes = b"\x8BPOD\r\n\x1A\n"
+        bytes = b"\x8bPOD\r\n\x1a\n"
         for file in input_files:
             file.write_bytes(bytes)
 
@@ -326,7 +425,6 @@ def test_needs_basecalling(tmp_path, pod5_files, other_files, expected):
     assert result == expected
 
 
-@pytest.mark.usefixtures("mock_pod5_internals")
 @pytest.mark.parametrize(
     "pod5_files, lock_files, done_files, expected",
     [
@@ -378,7 +476,8 @@ def test_get_unbasecalled_pod5_files(tmp_path, pod5_files, lock_files, done_file
     # Arrange
     # Insert root dir
     pod5_dir = tmp_path / "pod5"
-    pod5_files = [pod5_dir / file for file in pod5_files]
+    transferred_pod5_dir = tmp_path / "bam_eldorado" / "basecalling" / "transferred_pod5_files"
+    pod5_files = [transferred_pod5_dir / file for file in pod5_files]
     create_files(pod5_files)
 
     run = SequencingRun(pod5_dir)

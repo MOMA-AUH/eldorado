@@ -11,6 +11,7 @@ DORADO_CONFIG = "dorado_config.json"
 # Basecalling
 BC_DIR = "basecalling"
 BC_BATCHES_DIR = "batches"
+BC_POD5_DIR = "transferred_pod5_files"
 BC_LOCK_DIR = "lock_files"
 BC_DONE_DIR = "done_files"
 

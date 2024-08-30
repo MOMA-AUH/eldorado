@@ -4,7 +4,6 @@ from eldorado.merging import all_pod5_files_are_basecalled, get_done_batch_dirs
 from eldorado.pod5_handling import SequencingRun
 
 
-@pytest.mark.usefixtures("mock_pod5_internals")
 @pytest.mark.parametrize(
     "pod5_dir, files, expected",
     [
@@ -17,7 +16,7 @@ from eldorado.pod5_handling import SequencingRun
         pytest.param(
             "sample/pod5",
             [
-                "sample/pod5/file.pod5",
+                "sample/bam_eldorado/basecalling/transferred_pod5_files/file.pod5",
                 "sample/bam_eldorado/basecalling/done_files/file.pod5.done",
             ],
             True,
@@ -26,8 +25,8 @@ from eldorado.pod5_handling import SequencingRun
         pytest.param(
             "sample/pod5",
             [
-                "sample/pod5/file1.pod5",
-                "sample/pod5/file2.pod5",
+                "sample/bam_eldorado/basecalling/transferred_pod5_files/file1.pod5",
+                "sample/bam_eldorado/basecalling/transferred_pod5_files/file2.pod5",
                 "sample/bam_eldorado/basecalling/done_files/file1.pod5.done",
                 "sample/bam_eldorado/basecalling/done_files/file2.pod5.done",
             ],
@@ -37,8 +36,8 @@ from eldorado.pod5_handling import SequencingRun
         pytest.param(
             "sample/pod5",
             [
-                "sample/pod5/file.pod5",
-                "sample/pod5/file2.pod5",
+                "sample/bam_eldorado/basecalling/transferred_pod5_files/file.pod5",
+                "sample/bam_eldorado/basecalling/transferred_pod5_files/file2.pod5",
                 "sample/bam_eldorado/basecalling/done_files/file.pod5.done",
             ],
             False,
@@ -47,7 +46,7 @@ from eldorado.pod5_handling import SequencingRun
         pytest.param(
             "sample/pod5",
             [
-                "sample/pod5/file.pod5",
+                "sample/bam_eldorado/basecalling/transferred_pod5_files/file.pod5",
                 "sample/bam_eldorado/basecalling/done_files/other_file.pod5.done",
             ],
             False,
@@ -81,7 +80,6 @@ def test_all_existing_pod5_files_basecalled(
     assert result == expected
 
 
-@pytest.mark.usefixtures("mock_pod5_internals")
 @pytest.mark.parametrize(
     "pod5_dir, files, expected",
     [

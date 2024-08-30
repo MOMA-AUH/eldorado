@@ -9,7 +9,7 @@ from eldorado.configuration import get_dorado_config, get_project_configs
 from eldorado.demultiplexing import cleanup_demultiplexing_lock_files, demultiplexing_is_pending, process_demultiplexing
 from eldorado.logging_config import logger, set_log_file_handler
 from eldorado.merging import cleanup_merge_lock_files, merging_is_pending, submit_merging_to_slurm
-from eldorado.pod5_handling import contains_pod5_files, find_sequencning_runs_for_processing, needs_basecalling
+from eldorado.pod5_handling import contains_pod5_files, find_sequencning_runs_for_processing, needs_basecalling, update_transferred_pod5_files
 
 # Set up the CLI
 app = typer.Typer()
@@ -78,7 +78,7 @@ def scheduler(
     walltime: Annotated[
         str,
         typer.Option(
-            "--base-waltime",
+            "--walltime",
             "-w",
             help="Basecalling walltime for SLURM. Default: 12 hours",
         ),
@@ -149,7 +149,7 @@ def scheduler(
                 run_merging=True,
                 run_demultiplexing=True,
                 run_cleanup=True,
-                mail_user=mail_user,
+                mail_users=mail_user,
                 walltime=walltime,
                 min_batch_size=min_batch_size,
                 max_batch_size=max_batch_size,
@@ -228,7 +228,7 @@ def manual_run(
     walltime: Annotated[
         str,
         typer.Option(
-            "--base-waltime",
+            "--walltime",
             "-w",
             help="Basecalling walltime for SLURM. Default: 12 hours",
         ),
@@ -351,7 +351,7 @@ def manual_run(
         run_merging=run_merging,
         run_demultiplexing=run_demultiplexing,
         run_cleanup=run_cleanup,
-        mail_user=mail_user,
+        mail_users=mail_user,
         slurm_account=slurm_account,
         walltime=walltime,
         dry_run=dry_run,
@@ -372,14 +372,17 @@ def process_sequencing_run(
     run_merging: bool,
     run_demultiplexing: bool,
     run_cleanup: bool,
-    mail_user: List[str],
+    mail_users: List[str],
     slurm_account: str,
     dry_run: bool,
 ):
-    logger.info("Processing %s", str(run.pod5_dir))
+    logger.info("Processing %s", str(run.input_pod5_dir))
 
     # Setup output directory
     run.output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Update transffered pod5 files
+    update_transferred_pod5_files(run)
 
     # Clean up lock files before processing
     cleanup_basecalling_lock_files(run)
@@ -407,7 +410,7 @@ def process_sequencing_run(
             min_batch_size=min_batch_size,
             max_batch_size=max_batch_size,
             walltime=walltime,
-            mail_user=mail_user,
+            mail_user=mail_users[0],
             slurm_account=slurm_account,
             dry_run=dry_run,
         )
@@ -416,7 +419,7 @@ def process_sequencing_run(
         logger.info("Running merging...")
         submit_merging_to_slurm(
             run,
-            mail_user=mail_user,
+            mail_user=mail_users,
             slurm_account=slurm_account,
             dry_run=dry_run,
         )
@@ -425,7 +428,7 @@ def process_sequencing_run(
         logger.info("Running demultiplexing...")
         process_demultiplexing(
             run=run,
-            mail_user=mail_user,
+            mail_user=mail_users,
             slurm_account=slurm_account,
             dry_run=dry_run,
         )
@@ -434,7 +437,7 @@ def process_sequencing_run(
         logger.info("Finalizing output...")
         cleanup_output_dir(
             run=run,
-            mail_user=mail_user,
+            mail_user=mail_users,
         )
     else:
         logger.info("Nothing to do...")

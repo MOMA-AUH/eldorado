@@ -1,5 +1,4 @@
 import hashlib
-import math
 import subprocess
 import textwrap
 import time
@@ -125,7 +124,7 @@ def process_unbasecalled_pod5_files(
     min_batch_size: int,
     max_batch_size: int,
     walltime: str,
-    mail_user: List[str],
+    mail_user: str,
     slurm_account: str,
     dry_run: bool,
 ):
@@ -202,7 +201,7 @@ def has_unbasecalled_pod5_files(pod5_dir: SequencingRun) -> bool:
 def submit_basecalling_batch_to_slurm(
     batch: BasecallingBatch,
     slurm_account: str,
-    mail_user: List[str],
+    mail_user: str,
     dry_run: bool,
     walltime: str,
 ):
@@ -231,7 +230,7 @@ def submit_basecalling_batch_to_slurm(
         #SBATCH --partition         gpu
         #SBATCH --gres              gpu:1
         #SBATCH --mail-type         FAIL
-        #SBATCH --mail-user         {mail_user[0]}
+        {f"#SBATCH --mail-user         {mail_user}" if mail_user else ""}
         #SBATCH --output            {batch.script_file}.%j.out
         #SBATCH --job-name          eldorado-basecalling-{batch.run.metadata.library_pool_id}-{batch.batch_id}
         
